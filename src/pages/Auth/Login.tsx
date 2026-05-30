@@ -11,6 +11,7 @@ const { Option } = Select;
 const Login: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [selectedDemo, setSelectedDemo] = useState<string>('');
+    const [form] = Form.useForm();
     const navigate = useNavigate();
     const { login } = useAuthStore();
     const { message } = App.useApp();
@@ -39,12 +40,10 @@ const Login: React.FC = () => {
         setSelectedDemo(value);
         const demoUser = DEMO_USERS[value as keyof typeof DEMO_USERS];
         if (demoUser) {
-            // Auto-fill form
-            const form = document.querySelector('form');
-            if (form) {
-                (form.querySelector('input[type="email"]') as HTMLInputElement).value = demoUser.email;
-                (form.querySelector('input[type="password"]') as HTMLInputElement).value = demoUser.password;
-            }
+            form.setFieldsValue({
+                email: demoUser.email,
+                password: demoUser.password,
+            });
         }
     };
 
@@ -76,6 +75,7 @@ const Login: React.FC = () => {
                 />
 
                 <Form
+                    form={form}
                     name="login"
                     initialValues={{ remember: true }}
                     onFinish={onFinish}
