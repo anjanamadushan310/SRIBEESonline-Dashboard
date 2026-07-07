@@ -90,7 +90,7 @@ export const BranchStaffGuard: React.FC<{ children: React.ReactNode; fallback?: 
 }) => {
     return (
         <RoleGuard
-            allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.BRANCH_MANAGER, AdminRole.STAFF]}
+            allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.BRANCH_MANAGER, AdminRole.CUSTOMER_SUPPORT]}
             fallback={fallback}
         >
             {children}
@@ -108,7 +108,7 @@ export const InventoryGuard: React.FC<{ children: React.ReactNode; fallback?: Re
 }) => {
     return (
         <RoleGuard
-            allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.BRANCH_MANAGER, AdminRole.INVENTORY]}
+            allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.BRANCH_MANAGER, AdminRole.INVENTORY_MANAGER]}
             fallback={fallback}
         >
             {children}

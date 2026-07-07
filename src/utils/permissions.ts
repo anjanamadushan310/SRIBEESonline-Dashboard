@@ -53,21 +53,14 @@ export function isSuperAdmin(role: AdminRole): boolean {
  * Check if role requires branch isolation
  */
 export function requiresBranchIsolation(role: AdminRole): boolean {
-    return (
-        role === AdminRole.BRANCH_MANAGER ||
-        role === AdminRole.STAFF
-    );
+    return role === AdminRole.BRANCH_MANAGER;
 }
 
 /**
  * Check if role can access all branches
  */
 export function canAccessAllBranches(role: AdminRole): boolean {
-    return (
-        role === AdminRole.SUPER_ADMIN ||
-        role === AdminRole.SUPPORT ||
-        role === AdminRole.INVENTORY
-    );
+    return !requiresBranchIsolation(role);
 }
 
 /**
@@ -105,7 +98,7 @@ export function filterByBranchAccess<T extends { branch_id: string }>(
 /**
  * Get dashboard type based on role
  */
-export type DashboardType = 'admin' | 'manager' | 'staff' | 'support' | 'inventory';
+export type DashboardType = 'admin' | 'manager' | 'marketing' | 'support' | 'inventory';
 
 export function getDashboardType(role: AdminRole): DashboardType {
     switch (role) {
@@ -113,14 +106,14 @@ export function getDashboardType(role: AdminRole): DashboardType {
             return 'admin';
         case AdminRole.BRANCH_MANAGER:
             return 'manager';
-        case AdminRole.STAFF:
-            return 'staff';
-        case AdminRole.SUPPORT:
+        case AdminRole.MARKETING_MANAGER:
+            return 'marketing';
+        case AdminRole.CUSTOMER_SUPPORT:
             return 'support';
-        case AdminRole.INVENTORY:
+        case AdminRole.INVENTORY_MANAGER:
             return 'inventory';
         default:
-            return 'staff';
+            return 'support';
     }
 }
 
@@ -142,14 +135,14 @@ export function canManageBranches(role: AdminRole): boolean {
  * Check if role can approve stock transfers
  */
 export function canApproveTransfers(role: AdminRole): boolean {
-    return role === AdminRole.SUPER_ADMIN || role === AdminRole.INVENTORY;
+    return role === AdminRole.SUPER_ADMIN || role === AdminRole.INVENTORY_MANAGER;
 }
 
 /**
  * Check if role can create stock transfers
  */
 export function canCreateTransfers(role: AdminRole): boolean {
-    return role === AdminRole.SUPER_ADMIN || role === AdminRole.BRANCH_MANAGER || role === AdminRole.INVENTORY;
+    return role === AdminRole.SUPER_ADMIN || role === AdminRole.BRANCH_MANAGER || role === AdminRole.INVENTORY_MANAGER;
 }
 
 /**
@@ -159,7 +152,7 @@ export function canViewAnalytics(role: AdminRole): boolean {
     return (
         role === AdminRole.SUPER_ADMIN ||
         role === AdminRole.BRANCH_MANAGER ||
-        role === AdminRole.INVENTORY
+        role === AdminRole.INVENTORY_MANAGER
     );
 }
 
@@ -181,12 +174,12 @@ export function canViewWatchlistAnalytics(role: AdminRole): boolean {
  * Check if role can edit products
  */
 export function canEditProducts(role: AdminRole): boolean {
-    return role === AdminRole.SUPER_ADMIN || role === AdminRole.INVENTORY;
+    return role === AdminRole.SUPER_ADMIN || role === AdminRole.INVENTORY_MANAGER;
 }
 
 /**
  * Check if role can update branch inventory
  */
 export function canUpdateInventory(role: AdminRole): boolean {
-    return role === AdminRole.SUPER_ADMIN || role === AdminRole.BRANCH_MANAGER || role === AdminRole.INVENTORY;
+    return role === AdminRole.SUPER_ADMIN || role === AdminRole.BRANCH_MANAGER || role === AdminRole.INVENTORY_MANAGER;
 }

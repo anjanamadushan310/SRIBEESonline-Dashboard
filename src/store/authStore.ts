@@ -1,6 +1,6 @@
 /**
  * Authentication Store using Zustand
- * Manages user authentication state, token, and branch context
+ * Manages user authentication state, tokens, and branch context
  */
 
 import { create } from 'zustand';
@@ -20,24 +20,31 @@ interface User {
     avatar_url?: string;
 }
 
+export interface AuthTokens {
+    accessToken: string;
+    refreshToken: string;
+}
+
 // Auth state interface
 interface AuthState {
     user: User | null;
     token: string | null;
+    refreshToken: string | null;
     isAuthenticated: boolean;
     isLoading: boolean;
-    
+
     // Actions
-    login: (user: User, token: string) => void;
+    login: (user: User, tokens: AuthTokens) => void;
     logout: () => void;
+    setTokens: (tokens: AuthTokens) => void;
     updateUser: (userData: Partial<User>) => void;
     setLoading: (loading: boolean) => void;
-    
+
     // Permission checks
     hasPermission: (resource: Resource, action: Action) => boolean;
     isSuperAdmin: () => boolean;
     isBranchManager: () => boolean;
-    isStaff: () => boolean;
+    isCustomerSupport: () => boolean;
     canAccessBranch: (branchId: string) => boolean;
 }
 
@@ -46,20 +53,39 @@ export const useAuthStore = create<AuthState>()(
         (set, get) => ({
             user: null,
             token: null,
+            refreshToken: null,
             isAuthenticated: false,
             isLoading: false,
 
-            login: (user, token) => {
-                localStorage.setItem('admin_token', token);
+            login: (user, tokens) => {
+                // Legacy mirror keys kept for code that reads localStorage directly
+                localStorage.setItem('admin_token', tokens.accessToken);
                 localStorage.setItem('admin_user', JSON.stringify(user));
-                set({ user, token, isAuthenticated: true, isLoading: false });
+                set({
+                    user,
+                    token: tokens.accessToken,
+                    refreshToken: tokens.refreshToken,
+                    isAuthenticated: true,
+                    isLoading: false,
+                });
             },
 
             logout: () => {
                 localStorage.removeItem('admin_token');
                 localStorage.removeItem('admin_user');
                 localStorage.removeItem('active_branch');
-                set({ user: null, token: null, isAuthenticated: false, isLoading: false });
+                set({
+                    user: null,
+                    token: null,
+                    refreshToken: null,
+                    isAuthenticated: false,
+                    isLoading: false,
+                });
+            },
+
+            setTokens: (tokens) => {
+                localStorage.setItem('admin_token', tokens.accessToken);
+                set({ token: tokens.accessToken, refreshToken: tokens.refreshToken });
             },
 
             updateUser: (userData) => {
@@ -80,13 +106,13 @@ export const useAuthStore = create<AuthState>()(
                 if (!user) return false;
 
                 const permissions = ROLE_PERMISSIONS[user.role] || [];
-                
+
                 return permissions.some((perm) => {
                     // Check for wildcard permissions
                     if (perm.resource === '*' && perm.action === '*') return true;
                     if (perm.resource === '*' && perm.action === action) return true;
                     if (perm.resource === resource && perm.action === '*') return true;
-                    
+
                     // Exact match
                     return perm.resource === resource && perm.action === action;
                 });
@@ -102,18 +128,18 @@ export const useAuthStore = create<AuthState>()(
                 return user?.role === AdminRole.BRANCH_MANAGER;
             },
 
-            isStaff: () => {
+            isCustomerSupport: () => {
                 const user = get().user;
-                return user?.role === AdminRole.STAFF;
+                return user?.role === AdminRole.CUSTOMER_SUPPORT;
             },
 
             canAccessBranch: (branchId: string) => {
                 const user = get().user;
                 if (!user) return false;
-                
+
                 // Super admin can access all branches
                 if (user.role === AdminRole.SUPER_ADMIN) return true;
-                
+
                 // Other roles can only access their assigned branch
                 return user.branch_id === branchId;
             },
@@ -123,6 +149,7 @@ export const useAuthStore = create<AuthState>()(
             partialize: (state) => ({
                 user: state.user,
                 token: state.token,
+                refreshToken: state.refreshToken,
                 isAuthenticated: state.isAuthenticated,
             }),
         }

@@ -186,7 +186,7 @@ const AppSettings: React.FC = () => {
             const response = await fetch('/api/v1/admin/settings/splash-video', {
                 method: 'PUT',
                 headers: {
-                    Authorization: `Bearer ${localStorage.getItem('adminToken')}`,
+                    Authorization: `Bearer ${localStorage.getItem('admin_token')}`,
                 },
                 body: formData,
             });
@@ -225,7 +225,7 @@ const AppSettings: React.FC = () => {
             const response = await fetch('/api/v1/admin/settings/splash-video', {
                 method: 'DELETE',
                 headers: {
-                    Authorization: `Bearer ${localStorage.getItem('adminToken')}`,
+                    Authorization: `Bearer ${localStorage.getItem('admin_token')}`,
                 },
             });
 

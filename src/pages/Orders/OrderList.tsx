@@ -1,195 +1,139 @@
-import React, { useState, useEffect } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Card, message } from 'antd';
+/**
+ * Order Management (Module 7.3)
+ * Branch-scoped order list with status + (super-admin) branch filters.
+ * Row click / View opens the OrderDetails drawer. TanStack Query against
+ * /api/v1/admin/orders.
+ */
+import React, { useState } from 'react';
+import { Card, Table, Input, Select, Space, Button, Typography, App } from 'antd';
 import { EyeOutlined, SearchOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
-import { orderApi } from '../../api/orders.api';
-import type { Order } from '../../api/orders.api';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import {
+    ordersApi,
+    ORDER_STATUS_META,
+    ORDER_STATUSES,
+} from '../../api/orders.api';
+import type { OrderListItem, OrderStatus } from '../../api/orders.api';
+import { branchesApi } from '../../api/branches.api';
+import { usePermissions } from '../../hooks/usePermissions';
+import OrderDetails, { statusTag } from './OrderDetails';
 
-const { Search } = Input;
-const { Option } = Select;
+const { Title, Text } = Typography;
+
+const formatLKR = (value: number): string =>
+    new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR' }).format(value ?? 0);
 
 const OrderList: React.FC = () => {
-    const navigate = useNavigate();
-    const [orders, setOrders] = useState<Order[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [total, setTotal] = useState(0);
-    const [currentPage, setCurrentPage] = useState(1);
+    const { message } = App.useApp();
+    const { isSuperAdmin } = usePermissions();
+
+    const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
-    const [searchText, setSearchText] = useState('');
-    const [statusFilter, setStatusFilter] = useState<string>('');
-    const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('');
+    const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState<OrderStatus | undefined>(undefined);
+    const [branchId, setBranchId] = useState<string | undefined>(undefined);
+    const [openOrderId, setOpenOrderId] = useState<string | null>(null);
+    const [drawerOpen, setDrawerOpen] = useState(false);
 
-    useEffect(() => {
-        fetchOrders();
-    }, [currentPage, pageSize, searchText, statusFilter, paymentStatusFilter]);
+    const { data: branches = [] } = useQuery({
+        queryKey: ['admin', 'branches'],
+        queryFn: branchesApi.list,
+        enabled: isSuperAdmin,
+    });
 
-    const fetchOrders = async () => {
-        try {
-            setLoading(true);
-            const response = await orderApi.getAll({
-                page: currentPage,
+    const { data, isLoading, isError, error } = useQuery({
+        queryKey: ['admin', 'orders', { page, pageSize, search, statusFilter, branchId }],
+        queryFn: () =>
+            ordersApi.list({
+                page,
                 limit: pageSize,
-                search: searchText,
-                status: statusFilter,
-                payment_status: paymentStatusFilter,
-            });
+                search: search || undefined,
+                order_status: statusFilter,
+                branch_id: branchId,
+            }),
+        placeholderData: keepPreviousData,
+    });
 
-            setOrders(response.orders || []);
-            setTotal(response.total || 0);
-        } catch (error: any) {
-            console.error('Failed to fetch orders:', error);
-            message.error('Failed to load orders');
+    if (isError) {
+        message.error((error as any)?.response?.data?.detail || 'Failed to load orders.');
+    }
 
-            // Demo data fallback
-            const demoOrders: Order[] = [
-                {
-                    order_id: '1',
-                    order_number: 'ORD-2026-001234',
-                    user_id: 'user1',
-                    customer_name: 'John Doe',
-                    customer_email: 'john@example.com',
-                    total_amount: 125.50,
-                    status: 'delivered',
-                    payment_status: 'paid',
-                    payment_method: 'card',
-                    delivery_address_id: 'addr1',
-                    delivery_slot_date: '2026-01-20',
-                    delivery_slot_time: 'morning',
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                },
-                {
-                    order_id: '2',
-                    order_number: 'ORD-2026-001235',
-                    user_id: 'user2',
-                    customer_name: 'Jane Smith',
-                    customer_email: 'jane@example.com',
-                    total_amount: 89.99,
-                    status: 'pending',
-                    payment_status: 'pending',
-                    payment_method: 'cod',
-                    delivery_address_id: 'addr2',
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                },
-                {
-                    order_id: '3',
-                    order_number: 'ORD-2026-001236',
-                    user_id: 'user3',
-                    customer_name: 'Bob Johnson',
-                    customer_email: 'bob@example.com',
-                    total_amount: 210.00,
-                    status: 'shipped',
-                    payment_status: 'paid',
-                    payment_method: 'upi',
-                    delivery_address_id: 'addr3',
-                    delivery_slot_date: '2026-01-21',
-                    delivery_slot_time: 'evening',
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                },
-            ];
-            setOrders(demoOrders);
-            setTotal(demoOrders.length);
-        } finally {
-            setLoading(false);
-        }
+    const showBranchColumn = data?.scope.is_super_admin ?? isSuperAdmin;
+
+    const openDrawer = (id: string) => {
+        setOpenOrderId(id);
+        setDrawerOpen(true);
     };
 
-    const getStatusColor = (status: string) => {
-        const colors: Record<string, string> = {
-            pending: 'orange',
-            confirmed: 'blue',
-            packed: 'purple',
-            shipped: 'cyan',
-            delivered: 'green',
-            cancelled: 'red',
-        };
-        return colors[status] || 'default';
-    };
-
-    const getPaymentStatusColor = (status: string) => {
-        const colors: Record<string, string> = {
-            pending: 'orange',
-            paid: 'green',
-            failed: 'red',
-            refunded: 'purple',
-        };
-        return colors[status] || 'default';
-    };
-
-    const columns: ColumnsType<Order> = [
+    const columns: ColumnsType<OrderListItem> = [
         {
-            title: 'Order Number',
+            title: 'Order',
             dataIndex: 'order_number',
             key: 'order_number',
-            fixed: 'left',
-            width: 180,
+            render: (num: string, record) => (
+                <a onClick={() => openDrawer(record.order_id)}>{num}</a>
+            ),
         },
         {
             title: 'Customer',
-            dataIndex: 'customer_name',
-            key: 'customer_name',
-            render: (name: string, record: Order) => (
-                <div>
-                    <div style={{ fontWeight: 'bold' }}>{name}</div>
-                    <div style={{ fontSize: 12, color: '#999' }}>{record.customer_email}</div>
-                </div>
+            key: 'customer',
+            render: (_, record) => (
+                <Space direction="vertical" size={0}>
+                    <Text>{record.customer_name || '—'}</Text>
+                    {record.customer_email && (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                            {record.customer_email}
+                        </Text>
+                    )}
+                </Space>
             ),
+        },
+        ...(showBranchColumn
+            ? [
+                  {
+                      title: 'Branch',
+                      dataIndex: 'branch_name',
+                      key: 'branch_name',
+                      render: (name: string | null) =>
+                          name ? <span>{name}</span> : <Text type="secondary">Unassigned</Text>,
+                  } as ColumnsType<OrderListItem>[number],
+              ]
+            : []),
+        {
+            title: 'Date',
+            dataIndex: 'created_at',
+            key: 'created_at',
+            render: (d: string | null) => (d ? dayjs(d).format('MMM DD, YYYY') : '—'),
+        },
+        {
+            title: 'Items',
+            dataIndex: 'item_count',
+            key: 'item_count',
+            width: 70,
+            align: 'right',
         },
         {
             title: 'Total',
             dataIndex: 'total_amount',
             key: 'total_amount',
-            render: (amount: number) => `$${amount.toFixed(2)}`,
-            sorter: (a, b) => a.total_amount - b.total_amount,
+            align: 'right',
+            render: (v: number) => <Text strong>{formatLKR(v)}</Text>,
         },
         {
-            title: 'Order Status',
+            title: 'Status',
             dataIndex: 'status',
             key: 'status',
-            render: (status: string) => (
-                <Tag color={getStatusColor(status)} style={{ textTransform: 'capitalize' }}>
-                    {status}
-                </Tag>
-            ),
-        },
-        {
-            title: 'Payment Status',
-            dataIndex: 'payment_status',
-            key: 'payment_status',
-            render: (status: string) => (
-                <Tag color={getPaymentStatusColor(status)} style={{ textTransform: 'capitalize' }}>
-                    {status}
-                </Tag>
-            ),
-        },
-        {
-            title: 'Payment Method',
-            dataIndex: 'payment_method',
-            key: 'payment_method',
-            render: (method: string) => method?.toUpperCase() || 'N/A',
-        },
-        {
-            title: 'Date',
-            dataIndex: 'created_at',
-            key: 'created_at',
-            render: (date: string) => dayjs(date).format('MMM DD, YYYY HH:mm'),
-            sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+            width: 140,
+            render: (s: OrderStatus) => statusTag(s),
         },
         {
             title: 'Actions',
             key: 'actions',
-            fixed: 'right',
             width: 100,
             render: (_, record) => (
-                <Button
-                    type="link"
-                    icon={<EyeOutlined />}
-                    onClick={() => navigate(`/orders/${record.order_id}`)}
-                >
+                <Button type="link" icon={<EyeOutlined />} onClick={() => openDrawer(record.order_id)}>
                     View
                 </Button>
             ),
@@ -198,64 +142,76 @@ const OrderList: React.FC = () => {
 
     return (
         <div>
-            <h1 style={{ marginBottom: 16 }}>Orders</h1>
+            <Title level={3} style={{ marginTop: 0 }}>
+                Orders
+            </Title>
 
             <Card>
-                <Space style={{ marginBottom: 16, width: '100%' }} orientation="vertical">
-                    <Space wrap>
-                        <Search
-                            placeholder="Search by order number or customer..."
+                <Space wrap style={{ marginBottom: 16 }}>
+                    <Input.Search
+                        placeholder="Search order # or customer…"
+                        allowClear
+                        enterButton={<SearchOutlined />}
+                        style={{ width: 300 }}
+                        onSearch={(value) => {
+                            setPage(1);
+                            setSearch(value);
+                        }}
+                    />
+                    <Select
+                        placeholder="All statuses"
+                        style={{ width: 180 }}
+                        allowClear
+                        value={statusFilter}
+                        onChange={(value) => {
+                            setPage(1);
+                            setStatusFilter(value);
+                        }}
+                        options={ORDER_STATUSES.map((s) => ({
+                            label: ORDER_STATUS_META[s].label,
+                            value: s,
+                        }))}
+                    />
+                    {showBranchColumn && (
+                        <Select
+                            placeholder="All branches"
+                            style={{ width: 220 }}
                             allowClear
-                            enterButton={<SearchOutlined />}
-                            style={{ width: 300 }}
-                            onSearch={setSearchText}
+                            value={branchId}
+                            onChange={(value) => {
+                                setPage(1);
+                                setBranchId(value);
+                            }}
+                            options={branches.map((b) => ({ label: b.name, value: b.branch_id }))}
                         />
-                        <Select
-                            placeholder="Order Status"
-                            style={{ width: 150 }}
-                            allowClear
-                            onChange={setStatusFilter}
-                        >
-                            <Option value="pending">Pending</Option>
-                            <Option value="confirmed">Confirmed</Option>
-                            <Option value="packed">Packed</Option>
-                            <Option value="shipped">Shipped</Option>
-                            <Option value="delivered">Delivered</Option>
-                            <Option value="cancelled">Cancelled</Option>
-                        </Select>
-                        <Select
-                            placeholder="Payment Status"
-                            style={{ width: 150 }}
-                            allowClear
-                            onChange={setPaymentStatusFilter}
-                        >
-                            <Option value="pending">Pending</Option>
-                            <Option value="paid">Paid</Option>
-                            <Option value="failed">Failed</Option>
-                            <Option value="refunded">Refunded</Option>
-                        </Select>
-                    </Space>
+                    )}
                 </Space>
 
                 <Table
-                    columns={columns}
-                    dataSource={orders}
                     rowKey="order_id"
-                    loading={loading}
-                    scroll={{ x: 1200 }}
+                    columns={columns}
+                    dataSource={data?.orders ?? []}
+                    loading={isLoading}
+                    locale={{ emptyText: isError ? 'Failed to load orders.' : 'No orders found.' }}
                     pagination={{
-                        current: currentPage,
-                        pageSize: pageSize,
-                        total: total,
+                        current: page,
+                        pageSize,
+                        total: data?.total ?? 0,
                         showSizeChanger: true,
-                        showTotal: (total) => `Total ${total} orders`,
-                        onChange: (page, size) => {
-                            setCurrentPage(page);
-                            setPageSize(size);
+                        showTotal: (t) => `Total ${t} orders`,
+                        onChange: (nextPage, nextSize) => {
+                            setPage(nextPage);
+                            setPageSize(nextSize);
                         },
                     }}
                 />
             </Card>
+
+            <OrderDetails
+                orderId={openOrderId}
+                open={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+            />
         </div>
     );
 };

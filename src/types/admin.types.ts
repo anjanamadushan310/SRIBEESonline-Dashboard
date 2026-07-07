@@ -4,15 +4,23 @@
  */
 
 // Admin Role Types - using const object instead of enum for erasableSyntaxOnly compatibility
+// Values MUST match the backend enum in fastapi_backend/app/models/admin.py (AdminRole).
 export const AdminRole = {
     SUPER_ADMIN: 'super_admin',
     BRANCH_MANAGER: 'branch_manager',
-    STAFF: 'staff',
-    SUPPORT: 'support',
-    INVENTORY: 'inventory',
+    MARKETING_MANAGER: 'marketing_manager',
+    INVENTORY_MANAGER: 'inventory_manager',
+    CUSTOMER_SUPPORT: 'customer_support',
 } as const;
 
 export type AdminRole = typeof AdminRole[keyof typeof AdminRole];
+
+// All roles the backend recognizes; anything else must not pass the login gate
+export const VALID_ADMIN_ROLES: readonly AdminRole[] = Object.values(AdminRole);
+
+export function isValidAdminRole(role: unknown): role is AdminRole {
+    return typeof role === 'string' && (VALID_ADMIN_ROLES as readonly string[]).includes(role);
+}
 
 // Resource types for permissions
 export type Resource = 
@@ -28,7 +36,8 @@ export type Resource =
     | 'settings'
     | 'reviews'
     | 'categories'
-    | 'transfers';
+    | 'transfers'
+    | 'marketing';
 
 // Action types
 export type Action = 'create' | 'read' | 'update' | 'delete' | '*';
@@ -74,17 +83,17 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
         { resource: 'transfers', action: 'read' },
         { resource: 'settings', action: 'read' },
     ],
-    [AdminRole.STAFF]: [
+    [AdminRole.MARKETING_MANAGER]: [
         { resource: 'dashboard', action: 'read' },
         { resource: 'products', action: 'read' },
-        { resource: 'orders', action: 'read' },
-        { resource: 'orders', action: 'update' },
         { resource: 'customers', action: 'read' },
-        { resource: 'reviews', action: 'read' },
-        { resource: 'reviews', action: 'update' },
+        { resource: 'analytics', action: 'read' },
+        { resource: 'watchlist', action: 'read' },
+        { resource: 'marketing', action: '*' },
     ],
-    [AdminRole.SUPPORT]: [
+    [AdminRole.CUSTOMER_SUPPORT]: [
         { resource: 'dashboard', action: 'read' },
+        { resource: 'products', action: 'read' },
         { resource: 'orders', action: 'read' },
         { resource: 'orders', action: 'update' },
         { resource: 'customers', action: 'read' },
@@ -92,7 +101,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
         { resource: 'reviews', action: 'read' },
         { resource: 'reviews', action: 'update' },
     ],
-    [AdminRole.INVENTORY]: [
+    [AdminRole.INVENTORY_MANAGER]: [
         { resource: 'dashboard', action: 'read' },
         { resource: 'products', action: 'create' },
         { resource: 'products', action: 'read' },
@@ -113,18 +122,18 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
 export const ROLE_NAMES: Record<AdminRole, string> = {
     [AdminRole.SUPER_ADMIN]: 'Super Admin',
     [AdminRole.BRANCH_MANAGER]: 'Branch Manager',
-    [AdminRole.STAFF]: 'Staff',
-    [AdminRole.SUPPORT]: 'Support Agent',
-    [AdminRole.INVENTORY]: 'Inventory Manager',
+    [AdminRole.MARKETING_MANAGER]: 'Marketing Manager',
+    [AdminRole.INVENTORY_MANAGER]: 'Inventory Manager',
+    [AdminRole.CUSTOMER_SUPPORT]: 'Customer Support',
 };
 
 // Role colors for badges
 export const ROLE_COLORS: Record<AdminRole, { bg: string; text: string }> = {
     [AdminRole.SUPER_ADMIN]: { bg: '#fee2e2', text: '#dc2626' },
     [AdminRole.BRANCH_MANAGER]: { bg: '#dbeafe', text: '#2563eb' },
-    [AdminRole.STAFF]: { bg: '#dcfce7', text: '#16a34a' },
-    [AdminRole.SUPPORT]: { bg: '#fef3c7', text: '#d97706' },
-    [AdminRole.INVENTORY]: { bg: '#ede9fe', text: '#7c3aed' },
+    [AdminRole.MARKETING_MANAGER]: { bg: '#dcfce7', text: '#16a34a' },
+    [AdminRole.CUSTOMER_SUPPORT]: { bg: '#fef3c7', text: '#d97706' },
+    [AdminRole.INVENTORY_MANAGER]: { bg: '#ede9fe', text: '#7c3aed' },
 };
 
 // Navigation items by role
@@ -160,19 +169,21 @@ export const NAVIGATION_CONFIG: Record<AdminRole, string[]> = {
         'customers',
         'settings',
     ],
-    [AdminRole.STAFF]: [
+    [AdminRole.MARKETING_MANAGER]: [
         'dashboard',
-        'orders',
         'products',
-        'reviews',
+        'analytics',
+        'watchlist',
+        'customers',
+        'marketing',
     ],
-    [AdminRole.SUPPORT]: [
+    [AdminRole.CUSTOMER_SUPPORT]: [
         'dashboard',
         'orders',
         'customers',
         'reviews',
     ],
-    [AdminRole.INVENTORY]: [
+    [AdminRole.INVENTORY_MANAGER]: [
         'dashboard',
         'products',
         'inventory',
@@ -203,10 +214,10 @@ export const DEMO_USERS = {
         name: 'Kandy Manager',
         branch: 'Kandy City',
     },
-    staff: {
+    support: {
         email: 'staff1.colombo@freshcart.lk',
         password: 'Admin@123',
-        role: AdminRole.STAFF,
+        role: AdminRole.CUSTOMER_SUPPORT,
         name: 'Staff Colombo',
         branch: 'Colombo Central',
     },

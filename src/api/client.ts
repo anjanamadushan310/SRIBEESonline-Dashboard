@@ -1,12 +1,15 @@
 /**
  * Axios API Client with Interceptors
- * Handles authentication, branch isolation, and session management
+ * Handles authentication, token refresh/rotation, branch isolation,
+ * and session invalidation.
  */
 
 import axios, { AxiosError } from 'axios';
 import type { InternalAxiosRequestConfig } from 'axios';
+import { useAuthStore } from '../store/authStore';
+import { AdminRole } from '../types/admin.types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
 // Create axios instance
 const apiClient = axios.create({
@@ -20,23 +23,16 @@ const apiClient = axios.create({
 // Request interceptor - Add auth token and branch context
 apiClient.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
+        const { token, user } = useAuthStore.getState();
+
         // Add authentication token
-        const token = localStorage.getItem('admin_token');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
 
         // Add branch context for non-super-admin users
-        const userStr = localStorage.getItem('admin_user');
-        if (userStr) {
-            try {
-                const user = JSON.parse(userStr);
-                if (user.role !== 'super_admin' && user.branch_id) {
-                    config.headers['X-Branch-ID'] = user.branch_id;
-                }
-            } catch (e) {
-                console.error('Failed to parse user data:', e);
-            }
+        if (user && user.role !== AdminRole.SUPER_ADMIN && user.branch_id) {
+            config.headers['X-Branch-ID'] = user.branch_id;
         }
 
         // Add active branch from store (for super admin branch switching)
@@ -52,37 +48,79 @@ apiClient.interceptors.request.use(
     }
 );
 
-// Response interceptor - Handle errors and session invalidation
+interface RetriableRequestConfig extends InternalAxiosRequestConfig {
+    _retry?: boolean;
+}
+
+// Endpoints that must never trigger a token refresh on 401
+const AUTH_ENDPOINTS = ['/admin/auth/login', '/admin/auth/refresh'];
+
+const isAuthEndpoint = (url?: string): boolean =>
+    !!url && AUTH_ENDPOINTS.some((endpoint) => url.includes(endpoint));
+
+const forceLogout = (): void => {
+    useAuthStore.getState().logout();
+    if (!window.location.pathname.includes('/login')) {
+        window.location.href = '/login';
+    }
+};
+
+// Single-flight refresh: concurrent 401s share one refresh request
+let refreshPromise: Promise<string> | null = null;
+
+const refreshTokens = (): Promise<string> => {
+    if (!refreshPromise) {
+        const { refreshToken } = useAuthStore.getState();
+        if (!refreshToken) {
+            return Promise.reject(new Error('No refresh token available'));
+        }
+
+        // Bare axios call so this request bypasses the interceptors above
+        refreshPromise = axios
+            .post(`${API_BASE_URL}/admin/auth/refresh`, { refresh_token: refreshToken })
+            .then((response) => {
+                const { token, refresh_token } = response.data.data;
+                useAuthStore.getState().setTokens({
+                    accessToken: token,
+                    refreshToken: refresh_token,
+                });
+                return token as string;
+            })
+            .finally(() => {
+                refreshPromise = null;
+            });
+    }
+    return refreshPromise;
+};
+
+// Response interceptor - Refresh expired tokens, retry once, else logout
 apiClient.interceptors.response.use(
     (response) => {
         return response;
     },
-    (error: AxiosError<{ message?: string; error?: string }>) => {
-        // Handle 401 Unauthorized - Session expired or invalid
-        if (error.response?.status === 401) {
-            // Don't auto-redirect - let components handle with fallback data
-            // This allows the admin dashboard to work in demo mode
-            console.warn('401 Unauthorized - API requires authentication. Using fallback data.');
+    async (error: AxiosError<{ message?: string; detail?: string }>) => {
+        const originalRequest = error.config as RetriableRequestConfig | undefined;
+
+        if (
+            error.response?.status === 401 &&
+            originalRequest &&
+            !originalRequest._retry &&
+            !isAuthEndpoint(originalRequest.url)
+        ) {
+            originalRequest._retry = true;
+            try {
+                const newToken = await refreshTokens();
+                originalRequest.headers.Authorization = `Bearer ${newToken}`;
+                return apiClient(originalRequest);
+            } catch {
+                forceLogout();
+                return Promise.reject(error);
+            }
         }
 
-        // Handle 403 Forbidden - Insufficient permissions
-        if (error.response?.status === 403) {
-            console.warn('Access forbidden:', error.response.data?.message);
-        }
-
-        // Handle 404 Not Found - Endpoint doesn't exist
-        if (error.response?.status === 404) {
-            // Silently handle - components will use fallback data
-        }
-
-        // Handle 500 Server Error
-        if (error.response?.status === 500) {
-            console.error('Server error:', error.response.data?.message);
-        }
-
-        // Handle network errors
-        if (!error.response) {
-            console.error('Network error - server may be unavailable');
+        // 401 with no way to recover (auth endpoint or retried already)
+        if (error.response?.status === 401 && !isAuthEndpoint(originalRequest?.url)) {
+            forceLogout();
         }
 
         return Promise.reject(error);

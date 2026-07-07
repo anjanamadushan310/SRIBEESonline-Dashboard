@@ -1,390 +1,368 @@
 /**
- * Admin User List Page
- * Manage admin users across branches (Super Admin only)
+ * Admin User Management (Super Admin only)
+ * Table + create/edit modal with Role and Branch-assignment dropdowns.
+ * Data layer is TanStack Query against /api/v1/admin/users.
  */
-
-import React, { useEffect, useState } from 'react';
-import { 
-    Card, 
-    Table, 
-    Spin, 
-    Alert, 
-    Select, 
-    Tag, 
-    Space, 
-    Typography,
-    Button,
-    Input,
-    Popconfirm,
-    message,
-    Avatar,
-    Tooltip,
-} from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+import React, { useState } from 'react';
 import {
-    UserOutlined,
+    Card,
+    Table,
+    Button,
+    Space,
+    Tag,
+    Input,
+    Select,
+    Modal,
+    Form,
+    App,
+    Typography,
+    Popconfirm,
+} from 'antd';
+import {
     PlusOutlined,
     EditOutlined,
-    DeleteOutlined,
     SearchOutlined,
-    ShopOutlined,
+    UserOutlined,
+    StopOutlined,
     CheckCircleOutlined,
-    CloseCircleOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
-import { useBranchStore } from '../../store/branchStore';
-import { AdminRole } from '../../types/admin.types';
-import dayjs from 'dayjs';
+import type { ColumnsType } from 'antd/es/table';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { adminUsersApi } from '../../api/adminUsers.api';
+import type {
+    AdminUser,
+    CreateAdminUserPayload,
+    UpdateAdminUserPayload,
+} from '../../api/adminUsers.api';
+import { branchesApi } from '../../api/branches.api';
+import { AdminRole, ROLE_NAMES, VALID_ADMIN_ROLES } from '../../types/admin.types';
 
 const { Title, Text } = Typography;
 
-// Role labels for display
-const AdminRoleLabels: Record<string, string> = {
-    [AdminRole.SUPER_ADMIN]: 'Super Admin',
-    [AdminRole.BRANCH_MANAGER]: 'Branch Manager',
-    [AdminRole.STAFF]: 'Staff',
-    [AdminRole.SUPPORT]: 'Support',
-    [AdminRole.INVENTORY]: 'Inventory Manager',
-};
-const { Search } = Input;
+const USERS_KEY = ['admin', 'adminUsers'];
 
-interface AdminUser {
-    admin_id: string;
-    email: string;
+const ROLE_COLOR: Record<string, string> = {
+    [AdminRole.SUPER_ADMIN]: 'red',
+    [AdminRole.BRANCH_MANAGER]: 'blue',
+    [AdminRole.MARKETING_MANAGER]: 'green',
+    [AdminRole.INVENTORY_MANAGER]: 'purple',
+    [AdminRole.CUSTOMER_SUPPORT]: 'orange',
+};
+
+interface UserFormValues {
     full_name: string;
-    role: string;
-    branch_id: string | null;
-    branch_name: string | null;
-    is_active: boolean;
-    created_at: string;
-    last_login: string | null;
+    email: string;
+    password?: string;
+    role: AdminRole;
+    branch_id?: string | null;
 }
 
 const AdminUserList: React.FC = () => {
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [roleFilter, setRoleFilter] = useState<string | null>(null);
-    const [branchFilter, setBranchFilter] = useState<string | null>(null);
-    const [users, setUsers] = useState<AdminUser[]>([]);
+    const { message } = App.useApp();
+    const queryClient = useQueryClient();
+    const [form] = Form.useForm<UserFormValues>();
 
-    const navigate = useNavigate();
-    const { branches } = useBranchStore();
+    const [modalOpen, setModalOpen] = useState(false);
+    const [editing, setEditing] = useState<AdminUser | null>(null);
+    const [search, setSearch] = useState('');
 
-    useEffect(() => {
-        fetchUsers();
-    }, []);
-
-    const fetchUsers = async () => {
-        try {
-            setLoading(true);
-            setError(null);
-
-            // Mock data - in production, fetch from API
-            const mockUsers: AdminUser[] = [
-                {
-                    admin_id: 'a1',
-                    email: 'superadmin@freshcart.com',
-                    full_name: 'Super Admin',
-                    role: AdminRole.SUPER_ADMIN,
-                    branch_id: null,
-                    branch_name: null,
-                    is_active: true,
-                    created_at: '2025-01-01T00:00:00Z',
-                    last_login: '2026-01-29T08:00:00Z',
-                },
-                {
-                    admin_id: 'a2',
-                    email: 'manager.colombo@freshcart.com',
-                    full_name: 'Colombo Manager',
-                    role: AdminRole.BRANCH_MANAGER,
-                    branch_id: '44444444-4444-4444-4444-444444444444',
-                    branch_name: 'Colombo Central',
-                    is_active: true,
-                    created_at: '2025-02-15T00:00:00Z',
-                    last_login: '2026-01-28T14:00:00Z',
-                },
-                {
-                    admin_id: 'a3',
-                    email: 'staff.colombo@freshcart.com',
-                    full_name: 'Colombo Staff',
-                    role: AdminRole.STAFF,
-                    branch_id: '44444444-4444-4444-4444-444444444444',
-                    branch_name: 'Colombo Central',
-                    is_active: true,
-                    created_at: '2025-03-10T00:00:00Z',
-                    last_login: '2026-01-29T09:00:00Z',
-                },
-                {
-                    admin_id: 'a4',
-                    email: 'inventory@freshcart.com',
-                    full_name: 'Inventory Manager',
-                    role: AdminRole.INVENTORY,
-                    branch_id: null,
-                    branch_name: null,
-                    is_active: true,
-                    created_at: '2025-04-01T00:00:00Z',
-                    last_login: '2026-01-27T16:00:00Z',
-                },
-                {
-                    admin_id: 'a5',
-                    email: 'manager.kandy@freshcart.com',
-                    full_name: 'Kandy Manager',
-                    role: AdminRole.BRANCH_MANAGER,
-                    branch_id: '55555555-5555-5555-5555-555555555555',
-                    branch_name: 'Kandy City',
-                    is_active: false,
-                    created_at: '2025-05-20T00:00:00Z',
-                    last_login: '2026-01-15T10:00:00Z',
-                },
-            ];
-
-            setUsers(mockUsers);
-
-        } catch (err: unknown) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to load users';
-            console.error('Users error:', err);
-            setError(errorMessage);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Filter users
-    const filteredUsers = users.filter(user => {
-        // Role filter
-        if (roleFilter && user.role !== roleFilter) {
-            return false;
-        }
-        
-        // Branch filter
-        if (branchFilter && user.branch_id !== branchFilter) {
-            return false;
-        }
-        
-        // Search query
-        if (searchQuery) {
-            const query = searchQuery.toLowerCase();
-            return (
-                user.full_name.toLowerCase().includes(query) ||
-                user.email.toLowerCase().includes(query)
-            );
-        }
-        
-        return true;
+    const { data: users = [], isLoading, isError } = useQuery({
+        queryKey: USERS_KEY,
+        queryFn: adminUsersApi.list,
     });
 
-    const handleDelete = (userId: string) => {
-        setUsers(users.filter(u => u.admin_id !== userId));
-        message.success('User deleted');
+    // Branch options for the assignment dropdown (now that the API is real).
+    const { data: branches = [] } = useQuery({
+        queryKey: ['admin', 'branches'],
+        queryFn: branchesApi.list,
+    });
+
+    const invalidate = () => queryClient.invalidateQueries({ queryKey: USERS_KEY });
+
+    const createMutation = useMutation({
+        mutationFn: (payload: CreateAdminUserPayload) => adminUsersApi.create(payload),
+        onSuccess: () => {
+            message.success('Admin user created.');
+            closeModal();
+            invalidate();
+        },
+        onError: (err: any) =>
+            message.error(err.response?.data?.detail || 'Failed to create admin user.'),
+    });
+
+    const updateMutation = useMutation({
+        mutationFn: ({ id, payload }: { id: string; payload: UpdateAdminUserPayload }) =>
+            adminUsersApi.update(id, payload),
+        onSuccess: () => {
+            message.success('Admin user updated.');
+            closeModal();
+            invalidate();
+        },
+        onError: (err: any) =>
+            message.error(err.response?.data?.detail || 'Failed to update admin user.'),
+    });
+
+    const deactivateMutation = useMutation({
+        mutationFn: (id: string) => adminUsersApi.deactivate(id),
+        onSuccess: () => {
+            message.success('Admin user deactivated.');
+            invalidate();
+        },
+        onError: (err: any) =>
+            message.error(err.response?.data?.detail || 'Failed to deactivate admin user.'),
+    });
+
+    const reactivateMutation = useMutation({
+        mutationFn: (id: string) => adminUsersApi.update(id, { is_active: true }),
+        onSuccess: () => {
+            message.success('Admin user activated.');
+            invalidate();
+        },
+        onError: (err: any) =>
+            message.error(err.response?.data?.detail || 'Failed to activate admin user.'),
+    });
+
+    const openCreate = () => {
+        setEditing(null);
+        form.resetFields();
+        setModalOpen(true);
     };
 
-    const handleToggleStatus = (userId: string) => {
-        setUsers(users.map(u => 
-            u.admin_id === userId ? { ...u, is_active: !u.is_active } : u
-        ));
-        message.success('User status updated');
+    const openEdit = (user: AdminUser) => {
+        setEditing(user);
+        form.setFieldsValue({
+            full_name: user.full_name,
+            email: user.email,
+            password: undefined,
+            role: user.role,
+            branch_id: user.branch_id ?? undefined,
+        });
+        setModalOpen(true);
     };
 
-    const getRoleColor = (role: string): string => {
-        const colors: Record<string, string> = {
-            [AdminRole.SUPER_ADMIN]: 'red',
-            [AdminRole.BRANCH_MANAGER]: 'blue',
-            [AdminRole.STAFF]: 'green',
-            [AdminRole.INVENTORY]: 'purple',
-            [AdminRole.SUPPORT]: 'orange',
-        };
-        return colors[role] || 'default';
+    const closeModal = () => {
+        setModalOpen(false);
+        setEditing(null);
+        form.resetFields();
     };
+
+    const handleSubmit = async () => {
+        const values = await form.validateFields();
+        if (editing) {
+            const payload: UpdateAdminUserPayload = {
+                full_name: values.full_name.trim(),
+                email: values.email.trim(),
+                role: values.role,
+                branch_id: values.branch_id || null,
+            };
+            if (values.password) payload.password = values.password;
+            updateMutation.mutate({ id: editing.admin_id, payload });
+        } else {
+            const payload: CreateAdminUserPayload = {
+                full_name: values.full_name.trim(),
+                email: values.email.trim(),
+                password: values.password!,
+                role: values.role,
+                branch_id: values.branch_id || null,
+            };
+            createMutation.mutate(payload);
+        }
+    };
+
+    const filtered = users.filter(
+        (u) =>
+            u.full_name.toLowerCase().includes(search.toLowerCase()) ||
+            u.email.toLowerCase().includes(search.toLowerCase())
+    );
+
+    const roleOptions = VALID_ADMIN_ROLES.map((r) => ({ label: ROLE_NAMES[r], value: r }));
 
     const columns: ColumnsType<AdminUser> = [
         {
             title: 'User',
             key: 'user',
             render: (_, record) => (
-                <Space>
-                    <Avatar icon={<UserOutlined />} style={{ backgroundColor: record.is_active ? '#1890ff' : '#d9d9d9' }} />
-                    <Space orientation="vertical" size={0}>
-                        <Text strong>{record.full_name}</Text>
-                        <Text type="secondary" style={{ fontSize: 12 }}>{record.email}</Text>
-                    </Space>
+                <Space direction="vertical" size={0}>
+                    <Text strong>{record.full_name}</Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                        {record.email}
+                    </Text>
                 </Space>
             ),
         },
         {
             title: 'Role',
+            dataIndex: 'role',
             key: 'role',
-            filters: Object.entries(AdminRoleLabels).map(([value, text]) => ({ text: text as string, value })),
-            onFilter: (value, record) => record.role === value,
-            render: (_, record) => (
-                <Tag color={getRoleColor(record.role)}>
-                    {AdminRoleLabels[record.role as keyof typeof AdminRoleLabels] || record.role}
-                </Tag>
+            render: (role: AdminRole) => (
+                <Tag color={ROLE_COLOR[role] || 'default'}>{ROLE_NAMES[role] ?? role}</Tag>
             ),
+            filters: roleOptions.map((o) => ({ text: o.label, value: o.value })),
+            onFilter: (val, record) => record.role === val,
         },
         {
             title: 'Branch',
-            key: 'branch',
-            render: (_, record) => (
-                record.branch_name ? (
-                    <Tag icon={<ShopOutlined />}>{record.branch_name}</Tag>
-                ) : (
-                    <Text type="secondary">All Branches</Text>
-                )
-            ),
+            dataIndex: 'branch_name',
+            key: 'branch_name',
+            render: (name: string | null) =>
+                name ? <Tag>{name}</Tag> : <Text type="secondary">All / None</Text>,
         },
         {
             title: 'Status',
-            key: 'status',
+            dataIndex: 'is_active',
+            key: 'is_active',
+            width: 110,
+            render: (active: boolean) => (
+                <Tag color={active ? 'green' : 'default'}>{active ? 'Active' : 'Inactive'}</Tag>
+            ),
             filters: [
                 { text: 'Active', value: true },
                 { text: 'Inactive', value: false },
             ],
-            onFilter: (value, record) => record.is_active === value,
-            render: (_, record) => (
-                <Tag 
-                    icon={record.is_active ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
-                    color={record.is_active ? 'success' : 'error'}
-                >
-                    {record.is_active ? 'Active' : 'Inactive'}
-                </Tag>
-            ),
-        },
-        {
-            title: 'Last Login',
-            key: 'last_login',
-            sorter: (a, b) => {
-                if (!a.last_login) return 1;
-                if (!b.last_login) return -1;
-                return new Date(a.last_login).getTime() - new Date(b.last_login).getTime();
-            },
-            render: (_, record) => (
-                record.last_login ? (
-                    <Tooltip title={dayjs(record.last_login).format('YYYY-MM-DD HH:mm')}>
-                        <Text>{dayjs(record.last_login).fromNow()}</Text>
-                    </Tooltip>
-                ) : (
-                    <Text type="secondary">Never</Text>
-                )
-            ),
+            onFilter: (val, record) => record.is_active === val,
         },
         {
             title: 'Actions',
             key: 'actions',
-            width: 150,
+            width: 220,
             render: (_, record) => (
                 <Space>
-                    <Tooltip title="Edit">
-                        <Button 
-                            type="text" 
-                            icon={<EditOutlined />}
-                            onClick={() => navigate(`/users/${record.admin_id}/edit`)}
-                        />
-                    </Tooltip>
-                    <Tooltip title={record.is_active ? 'Deactivate' : 'Activate'}>
-                        <Button 
-                            type="text" 
-                            icon={record.is_active ? <CloseCircleOutlined /> : <CheckCircleOutlined />}
-                            onClick={() => handleToggleStatus(record.admin_id)}
-                        />
-                    </Tooltip>
-                    <Popconfirm
-                        title="Delete this user?"
-                        description="This action cannot be undone."
-                        onConfirm={() => handleDelete(record.admin_id)}
-                        okText="Delete"
-                        okButtonProps={{ danger: true }}
-                    >
-                        <Tooltip title="Delete">
-                            <Button type="text" danger icon={<DeleteOutlined />} />
-                        </Tooltip>
-                    </Popconfirm>
+                    <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)}>
+                        Edit
+                    </Button>
+                    {record.is_active ? (
+                        <Popconfirm
+                            title="Deactivate this admin?"
+                            okText="Deactivate"
+                            okButtonProps={{ danger: true }}
+                            onConfirm={() => deactivateMutation.mutate(record.admin_id)}
+                        >
+                            <Button type="link" danger icon={<StopOutlined />}>
+                                Deactivate
+                            </Button>
+                        </Popconfirm>
+                    ) : (
+                        <Button
+                            type="link"
+                            icon={<CheckCircleOutlined />}
+                            onClick={() => reactivateMutation.mutate(record.admin_id)}
+                        >
+                            Activate
+                        </Button>
+                    )}
                 </Space>
             ),
         },
     ];
 
-    if (loading) {
-        return (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
-                <Spin size="large" tip="Loading users..." />
-            </div>
-        );
-    }
-
     return (
-        <div style={{ padding: '24px' }}>
-            {/* Header */}
-            <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-                <div>
-                    <Title level={2} style={{ margin: 0 }}>
-                        <Space>
-                            <UserOutlined />
-                            Admin Users
-                        </Space>
-                    </Title>
-                    <Text type="secondary">Manage admin users and their permissions</Text>
-                </div>
-                <Button 
-                    type="primary" 
-                    icon={<PlusOutlined />}
-                    onClick={() => navigate('/users/new')}
-                >
+        <div>
+            <div
+                style={{
+                    marginBottom: 16,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                }}
+            >
+                <Title level={3} style={{ margin: 0 }}>
+                    <Space>
+                        <UserOutlined />
+                        Admin Users
+                    </Space>
+                </Title>
+                <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
                     Add Admin User
                 </Button>
             </div>
 
-            {error && (
-                <Alert message={error} type="warning" showIcon closable style={{ marginBottom: '24px' }} />
-            )}
-
-            {/* Filters */}
-            <Card style={{ marginBottom: '24px' }}>
-                <Space wrap size="middle">
-                    <Search
-                        placeholder="Search users..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        style={{ width: 250 }}
-                        allowClear
-                        prefix={<SearchOutlined />}
-                    />
-                    <Select
-                        placeholder="Filter by role"
-                        value={roleFilter}
-                        onChange={setRoleFilter}
-                        style={{ width: 180 }}
-                        allowClear
-                    >
-                        {Object.entries(AdminRoleLabels).map(([value, label]) => (
-                            <Select.Option key={value} value={value}>{label as string}</Select.Option>
-                        ))}
-                    </Select>
-                    <Select
-                        placeholder="Filter by branch"
-                        value={branchFilter}
-                        onChange={setBranchFilter}
-                        style={{ width: 180 }}
-                        allowClear
-                    >
-                        {branches.map((branch) => (
-                            <Select.Option key={branch.branch_id} value={branch.branch_id}>
-                                {branch.name}
-                            </Select.Option>
-                        ))}
-                    </Select>
-                </Space>
-            </Card>
-
-            {/* Users Table */}
             <Card>
+                <Input
+                    placeholder="Search by name or email"
+                    allowClear
+                    prefix={<SearchOutlined />}
+                    style={{ width: 320, marginBottom: 16 }}
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                />
+
                 <Table
-                    dataSource={filteredUsers}
-                    columns={columns}
                     rowKey="admin_id"
-                    pagination={{ pageSize: 10, showSizeChanger: true }}
+                    columns={columns}
+                    dataSource={filtered}
+                    loading={isLoading}
+                    locale={{ emptyText: isError ? 'Failed to load admin users.' : 'No admin users yet.' }}
+                    pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `Total ${t} users` }}
                 />
             </Card>
+
+            <Modal
+                title={editing ? 'Edit Admin User' : 'New Admin User'}
+                open={modalOpen}
+                onOk={handleSubmit}
+                onCancel={closeModal}
+                okText={editing ? 'Save' : 'Create'}
+                confirmLoading={createMutation.isPending || updateMutation.isPending}
+                destroyOnHidden
+            >
+                <Form form={form} layout="vertical" initialValues={{ is_active: true }}>
+                    <Form.Item
+                        label="Full Name"
+                        name="full_name"
+                        rules={[{ required: true, message: 'Name is required' }]}
+                    >
+                        <Input placeholder="e.g. Nimal Perera" />
+                    </Form.Item>
+
+                    <Form.Item
+                        label="Email"
+                        name="email"
+                        rules={[
+                            { required: true, message: 'Email is required' },
+                            { type: 'email', message: 'Enter a valid email' },
+                        ]}
+                    >
+                        <Input placeholder="name@sribees.lk" />
+                    </Form.Item>
+
+                    <Form.Item
+                        label={editing ? 'Password (leave blank to keep current)' : 'Password'}
+                        name="password"
+                        rules={
+                            editing
+                                ? [{ min: 8, message: 'At least 8 characters' }]
+                                : [
+                                      { required: true, message: 'Password is required' },
+                                      { min: 8, message: 'At least 8 characters' },
+                                  ]
+                        }
+                    >
+                        <Input.Password placeholder={editing ? '••••••••' : 'Min 8 characters'} />
+                    </Form.Item>
+
+                    <Form.Item
+                        label="Role"
+                        name="role"
+                        rules={[{ required: true, message: 'Select a role' }]}
+                    >
+                        <Select placeholder="Select a role" options={roleOptions} />
+                    </Form.Item>
+
+                    <Form.Item
+                        label="Branch Assignment"
+                        name="branch_id"
+                        extra="Required for branch-scoped roles; leave empty for global roles."
+                    >
+                        <Select
+                            placeholder="Select a branch (optional)"
+                            allowClear
+                            showSearch
+                            optionFilterProp="label"
+                            options={branches.map((b) => ({ label: b.name, value: b.branch_id }))}
+                        />
+                    </Form.Item>
+                </Form>
+            </Modal>
         </div>
     );
 };

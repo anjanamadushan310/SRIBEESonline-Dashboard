@@ -6,10 +6,7 @@
 
 ---
 
-## 🔐 React Web Admin Dashboard
 
-**Login URL**: `http://localhost:5173/login`
-**Backend API**: `http://localhost:8000/docs` (FastAPI Swagger)
 
 ### Demo User Accounts
 

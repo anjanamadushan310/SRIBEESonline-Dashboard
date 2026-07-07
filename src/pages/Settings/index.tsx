@@ -8,20 +8,18 @@ const Settings: React.FC = () => {
     const [profileForm] = Form.useForm();
     const [passwordForm] = Form.useForm();
 
-    const handleProfileUpdate = async (values: any) => {
+    const handleProfileUpdate = async (_values: any) => {
         try {
-            // API call would go here
-            console.log('Profile update values:', values);
+            // TODO: replace with real API call to update profile
             message.success('Profile updated successfully');
         } catch (error) {
             message.error('Failed to update profile');
         }
     };
 
-    const handlePasswordChange = async (values: any) => {
+    const handlePasswordChange = async (_values: any) => {
         try {
-            // API call would go here
-            console.log('Password change values:', values);
+            // TODO: replace with real API call to change password
             message.success('Password changed successfully');
             passwordForm.resetFields();
         } catch (error) {

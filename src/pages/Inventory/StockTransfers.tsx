@@ -60,7 +60,7 @@ const StockTransfers: React.FC = () => {
 
     const user = useAuthStore((state) => state.user);
     const { branches } = useBranchStore();
-    const canApprove = user?.role === AdminRole.SUPER_ADMIN || user?.role === AdminRole.INVENTORY;
+    const canApprove = user?.role === AdminRole.SUPER_ADMIN || user?.role === AdminRole.INVENTORY_MANAGER;
 
     const [form] = Form.useForm();
 

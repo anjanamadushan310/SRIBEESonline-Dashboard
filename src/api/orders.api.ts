@@ -1,68 +1,198 @@
+/**
+ * Admin Order API (/api/v1/admin/orders) — branch-scoped on the server.
+ * Responses are snake_case dicts, matching the types below.
+ */
 import apiClient from './client';
 
-export interface Order {
+export type OrderStatus =
+    | 'pending'
+    | 'confirmed'
+    | 'processing'
+    | 'shipped'
+    | 'out_for_delivery'
+    | 'delivered'
+    | 'cancelled'
+    | 'return_requested'
+    | 'return_approved'
+    | 'refunded';
+
+export interface OrderListItem {
     order_id: string;
     order_number: string;
     user_id: string;
-    customer_name?: string;
-    customer_email?: string;
-    total_amount: number;
-    status: string;
+    customer_name: string | null;
+    customer_email: string | null;
+    branch_id: string | null;
+    branch_name: string | null;
+    status: OrderStatus;
     payment_status: string;
-    payment_method?: string;
-    delivery_address_id: string;
-    delivery_slot_date?: string;
-    delivery_slot_time?: string;
-    created_at: string;
-    updated_at: string;
-}
-
-export interface OrderDetail extends Order {
-    items: OrderItem[];
-    address?: any;
-    status_history?: OrderStatusHistory[];
+    total_amount: number;
+    item_count: number;
+    created_at: string | null;
 }
 
 export interface OrderItem {
+    order_item_id: string;
     product_id: string;
     product_name: string;
+    product_sku: string | null;
+    product_image: string | null;
     quantity: number;
-    price: number;
+    unit_price: number;
     subtotal: number;
 }
 
-export interface OrderStatusHistory {
-    status: string;
-    created_at: string;
-    updated_by?: string;
+export interface OrderPricing {
+    subtotal: number;
+    tax_amount: number;
+    shipping_amount: number;
+    discount_amount: number;
+    wallet_deduction: number;
+    cashback_earned: number;
+    total_amount: number;
 }
 
-export interface OrderListResponse {
-    orders: Order[];
+export interface OrderCustomer {
+    user_id: string;
+    full_name: string;
+    email: string;
+    phone: string | null;
+}
+
+export interface OrderDeliveryAddress {
+    address_line1: string;
+    address_line2: string | null;
+    post_office: string;
+    district: string;
+    province: string;
+    postal_code: string;
+}
+
+export interface OrderReturnItem {
+    order_item_id: string;
+    quantity: number;
+}
+
+export interface OrderDetail {
+    order_id: string;
+    order_number: string;
+    status: OrderStatus;
+    payment_status: string;
+    payment_method: string | null;
+    branch_id: string | null;
+    branch_name: string | null;
+    created_at: string | null;
+    shipped_at: string | null;
+    delivered_at: string | null;
+    delivery_slot_date: string | null;
+    delivery_slot_time: string | null;
+    notes: string | null;
+    // Returns & refunds (Module 5.5)
+    return_reason: string | null;
+    return_comments: string | null;
+    return_items: OrderReturnItem[] | null;
+    return_requested_at: string | null;
+    refund_amount: number | null;
+    customer: OrderCustomer | null;
+    delivery_address: OrderDeliveryAddress | null;
+    items: OrderItem[];
+    pricing: OrderPricing;
+}
+
+export interface OrderScope {
+    is_super_admin: boolean;
+    branch_id: string | null;
+}
+
+export interface OrderListParams {
+    page?: number;
+    limit?: number;
+    order_status?: OrderStatus;
+    search?: string;
+    branch_id?: string; // super admin only
+}
+
+export interface OrderListResult {
+    orders: OrderListItem[];
     total: number;
     page: number;
-    totalPages: number;
+    limit: number;
+    total_pages: number;
+    scope: OrderScope;
 }
 
-export const orderApi = {
-    getAll: async (params?: {
-        page?: number;
-        limit?: number;
-        status?: string;
-        payment_status?: string;
-        search?: string;
-    }): Promise<OrderListResponse> => {
-        const response = await apiClient.get('/orders/admin/all', { params });
-        return response.data;
+interface OrderListWire {
+    success: boolean;
+    data: {
+        orders: OrderListItem[];
+        pagination: { total: number; page: number; limit: number; total_pages: number };
+        scope: OrderScope;
+    };
+}
+
+interface OrderDetailWire {
+    success: boolean;
+    data: OrderDetail;
+}
+
+// Presentation metadata for order statuses (label + Ant Design Tag color),
+// in natural lifecycle order.
+export const ORDER_STATUS_META: Record<OrderStatus, { label: string; color: string }> = {
+    pending: { label: 'Pending', color: 'gold' },
+    confirmed: { label: 'Confirmed', color: 'blue' },
+    processing: { label: 'Processing', color: 'geekblue' },
+    shipped: { label: 'Shipped', color: 'cyan' },
+    out_for_delivery: { label: 'Out for Delivery', color: 'purple' },
+    delivered: { label: 'Delivered', color: 'green' },
+    cancelled: { label: 'Cancelled', color: 'red' },
+    return_requested: { label: 'Return Requested', color: 'orange' },
+    return_approved: { label: 'Return Approved', color: 'gold' },
+    refunded: { label: 'Refunded', color: 'volcano' },
+};
+
+export const ORDER_STATUSES = Object.keys(ORDER_STATUS_META) as OrderStatus[];
+
+export const ordersApi = {
+    list: async (params?: OrderListParams): Promise<OrderListResult> => {
+        const clean: Record<string, unknown> = {};
+        if (params) {
+            Object.entries(params).forEach(([k, v]) => {
+                if (v !== undefined && v !== null && v !== '') clean[k] = v;
+            });
+        }
+        const res = await apiClient.get<OrderListWire>('/admin/orders', { params: clean });
+        return {
+            orders: res.data.data.orders,
+            scope: res.data.data.scope,
+            ...res.data.data.pagination,
+        };
     },
 
     getById: async (id: string): Promise<OrderDetail> => {
-        const response = await apiClient.get(`/orders/${id}`);
-        return response.data.data;
+        const res = await apiClient.get<OrderDetailWire>(`/admin/orders/${id}`);
+        return res.data.data;
     },
 
-    updateStatus: async (id: string, status: string): Promise<Order> => {
-        const response = await apiClient.put(`/orders/${id}/status`, { status });
-        return response.data.data;
+    updateStatus: async (id: string, status: OrderStatus): Promise<OrderDetail> => {
+        const res = await apiClient.patch<OrderDetailWire>(`/admin/orders/${id}/status`, { status });
+        return res.data.data;
+    },
+
+    approveReturn: async (id: string): Promise<OrderDetail> => {
+        const res = await apiClient.post<OrderDetailWire>(`/admin/orders/${id}/return/approve`);
+        return res.data.data;
+    },
+
+    rejectReturn: async (id: string): Promise<OrderDetail> => {
+        const res = await apiClient.post<OrderDetailWire>(`/admin/orders/${id}/return/reject`);
+        return res.data.data;
+    },
+
+    /** Fetch the order's PDF invoice as a Blob (for browser download). */
+    downloadInvoice: async (id: string): Promise<Blob> => {
+        const res = await apiClient.get(`/admin/orders/${id}/invoice`, {
+            responseType: 'blob',
+        });
+        return res.data as Blob;
     },
 };

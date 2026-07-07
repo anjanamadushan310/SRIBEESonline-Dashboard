@@ -1,197 +1,191 @@
-import React, { useState, useEffect } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Image, message, Popconfirm, Card } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
-import { productApi } from '../../api/products.api';
-import type { Product } from '../../api/products.api';
+/**
+ * Product List (Admin Module 7.2)
+ * Global-catalog product table with search, category filter and row actions.
+ * Data layer is TanStack Query against /api/v1/admin/products.
+ */
+import React, { useState } from 'react';
+import {
+    Card,
+    Table,
+    Button,
+    Input,
+    Select,
+    Space,
+    Tag,
+    Image,
+    Popconfirm,
+    App,
+    Typography,
+} from 'antd';
+import {
+    PlusOutlined,
+    EditOutlined,
+    DeleteOutlined,
+    SearchOutlined,
+    PictureOutlined,
+} from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { productsApi } from '../../api/products.api';
+import type { AdminProduct } from '../../api/products.api';
+import { categoriesApi } from '../../api/categories.api';
 
-const { Search } = Input;
-const { Option } = Select;
+const { Title } = Typography;
+
+const formatLKR = (value: number): string =>
+    new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR' }).format(value ?? 0);
+
+const primaryImage = (p: AdminProduct): string | undefined =>
+    (p.images.find((img) => img.is_primary) ?? p.images[0])?.image_url;
 
 const ProductList: React.FC = () => {
     const navigate = useNavigate();
-    const [products, setProducts] = useState<Product[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [total, setTotal] = useState(0);
-    const [currentPage, setCurrentPage] = useState(1);
+    const { message } = App.useApp();
+    const queryClient = useQueryClient();
+
+    const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
-    const [searchText, setSearchText] = useState('');
-    const [categoryFilter, setCategoryFilter] = useState<string>('');
-    const [statusFilter, setStatusFilter] = useState<string>('');
+    const [search, setSearch] = useState('');
+    const [categoryId, setCategoryId] = useState<string | undefined>(undefined);
+    const [isActive, setIsActive] = useState<boolean | undefined>(undefined);
 
-    useEffect(() => {
-        fetchProducts();
-    }, [currentPage, pageSize, searchText, categoryFilter, statusFilter]);
+    // Category options for the filter dropdown
+    const { data: categories = [] } = useQuery({
+        queryKey: ['admin', 'categories'],
+        queryFn: categoriesApi.list,
+    });
 
-    const fetchProducts = async () => {
-        try {
-            setLoading(true);
-            const response = await productApi.getAll({
-                page: currentPage,
+    const listKey = ['admin', 'products', { page, pageSize, search, categoryId, isActive }];
+
+    const { data, isLoading, isError } = useQuery({
+        queryKey: listKey,
+        queryFn: () =>
+            productsApi.list({
+                page,
                 limit: pageSize,
-                search: searchText,
-                category: categoryFilter,
-                status: statusFilter,
-            });
+                search: search || undefined,
+                category_id: categoryId,
+                is_active: isActive,
+            }),
+        placeholderData: keepPreviousData,
+    });
 
-            setProducts(response.products || []);
-            setTotal(response.total || 0);
-        } catch (error: any) {
-            console.error('Failed to fetch products:', error);
-            message.error('Failed to load products');
+    const deleteMutation = useMutation({
+        mutationFn: (id: string) => productsApi.remove(id),
+        onSuccess: () => {
+            message.success('Product deleted.');
+            queryClient.invalidateQueries({ queryKey: ['admin', 'products'] });
+        },
+        onError: (err: any) =>
+            message.error(err.response?.data?.detail || 'Failed to delete product.'),
+    });
 
-            // Demo data fallback
-            const demoProducts: Product[] = [
-                {
-                    _id: '1',
-                    name: 'Organic Milk',
-                    description: 'Fresh organic whole milk',
-                    price: 4.99,
-                    compareAtPrice: 5.99,
-                    category: 'Dairy',
-                    images: ['https://via.placeholder.com/150'],
-                    stock: 50,
-                    sku: 'MILK-ORG-001',
-                    status: 'active',
-                    tags: ['organic', 'dairy'],
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                },
-                {
-                    _id: '2',
-                    name: 'Fresh Bread',
-                    description: 'Whole wheat bread',
-                    price: 2.99,
-                    category: 'Bakery',
-                    images: ['https://via.placeholder.com/150'],
-                    stock: 30,
-                    sku: 'BREAD-WW-001',
-                    status: 'active',
-                    tags: ['bakery', 'fresh'],
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                },
-                {
-                    _id: '3',
-                    name: 'Eggs (Dozen)',
-                    description: 'Farm fresh eggs',
-                    price: 3.49,
-                    category: 'Dairy',
-                    images: ['https://via.placeholder.com/150'],
-                    stock: 100,
-                    sku: 'EGGS-FARM-001',
-                    status: 'active',
-                    tags: ['eggs', 'fresh'],
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                },
-            ];
-            setProducts(demoProducts);
-            setTotal(demoProducts.length);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleDelete = async (id: string) => {
-        try {
-            await productApi.delete(id);
-            message.success('Product deleted successfully');
-            fetchProducts();
-        } catch (error) {
-            message.error('Failed to delete product');
-        }
-    };
-
-    const columns: ColumnsType<Product> = [
+    const columns: ColumnsType<AdminProduct> = [
         {
             title: 'Image',
-            dataIndex: 'images',
-            key: 'images',
-            width: 80,
-            render: (images: string[]) => (
-                <Image
-                    src={images?.[0] || 'https://via.placeholder.com/150'}
-                    alt="Product"
-                    width={50}
-                    height={50}
-                    style={{ objectFit: 'cover', borderRadius: 4 }}
-                />
-            ),
+            key: 'image',
+            width: 72,
+            render: (_, record) => {
+                const url = primaryImage(record);
+                return url ? (
+                    <Image
+                        src={url}
+                        width={48}
+                        height={48}
+                        style={{ objectFit: 'cover', borderRadius: 4 }}
+                        preview={{ mask: null }}
+                    />
+                ) : (
+                    <div
+                        style={{
+                            width: 48,
+                            height: 48,
+                            borderRadius: 4,
+                            background: '#f0f0f0',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#bbb',
+                        }}
+                    >
+                        <PictureOutlined />
+                    </div>
+                );
+            },
         },
         {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            sorter: (a, b) => a.name.localeCompare(b.name),
+            render: (name: string, record) => (
+                <a onClick={() => navigate(`/products/${record.product_id}/edit`)}>{name}</a>
+            ),
         },
         {
             title: 'SKU',
             dataIndex: 'sku',
             key: 'sku',
+            render: (sku: string | null) => sku || <span style={{ color: '#bbb' }}>—</span>,
         },
         {
             title: 'Category',
-            dataIndex: 'category',
             key: 'category',
+            render: (_, record) =>
+                record.category ? (
+                    <Tag color="geekblue">{record.category.name}</Tag>
+                ) : (
+                    <span style={{ color: '#bbb' }}>Uncategorized</span>
+                ),
         },
         {
-            title: 'Price',
-            dataIndex: 'price',
+            title: 'Base Price',
             key: 'price',
-            render: (price: number, record: Product) => (
+            render: (_, record) => (
                 <div>
-                    <div style={{ fontWeight: 'bold' }}>${price.toFixed(2)}</div>
-                    {record.compareAtPrice && (
-                        <div style={{ fontSize: 12, color: '#999', textDecoration: 'line-through' }}>
-                            ${record.compareAtPrice.toFixed(2)}
+                    <div style={{ fontWeight: 600 }}>{formatLKR(record.price)}</div>
+                    {record.compare_at_price ? (
+                        <div
+                            style={{
+                                fontSize: 12,
+                                color: '#999',
+                                textDecoration: 'line-through',
+                            }}
+                        >
+                            {formatLKR(record.compare_at_price)}
                         </div>
-                    )}
+                    ) : null}
                 </div>
             ),
-            sorter: (a, b) => a.price - b.price,
-        },
-        {
-            title: 'Stock',
-            dataIndex: 'stock',
-            key: 'stock',
-            render: (stock: number) => (
-                <Tag color={stock > 20 ? 'green' : stock > 0 ? 'orange' : 'red'}>
-                    {stock} units
-                </Tag>
-            ),
-            sorter: (a, b) => a.stock - b.stock,
         },
         {
             title: 'Status',
-            dataIndex: 'status',
-            key: 'status',
-            render: (status: string) => (
-                <Tag color={status === 'active' ? 'green' : 'default'}>
-                    {status.toUpperCase()}
-                </Tag>
+            dataIndex: 'is_active',
+            key: 'is_active',
+            width: 110,
+            render: (active: boolean) => (
+                <Tag color={active ? 'green' : 'default'}>{active ? 'Active' : 'Inactive'}</Tag>
             ),
         },
         {
             title: 'Actions',
             key: 'actions',
-            width: 150,
+            width: 160,
             render: (_, record) => (
                 <Space>
                     <Button
                         type="link"
                         icon={<EditOutlined />}
-                        onClick={() => navigate(`/products/${record._id}/edit`)}
+                        onClick={() => navigate(`/products/${record.product_id}/edit`)}
                     >
                         Edit
                     </Button>
                     <Popconfirm
                         title="Delete product"
-                        description="Are you sure you want to delete this product?"
-                        onConfirm={() => handleDelete(record._id)}
-                        okText="Yes"
-                        cancelText="No"
+                        description="This permanently removes the product."
+                        okText="Delete"
+                        okButtonProps={{ danger: true }}
+                        onConfirm={() => deleteMutation.mutate(record.product_id)}
                     >
                         <Button type="link" danger icon={<DeleteOutlined />}>
                             Delete
@@ -204,65 +198,78 @@ const ProductList: React.FC = () => {
 
     return (
         <div>
-            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h1 style={{ margin: 0 }}>Products</h1>
-                <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={() => navigate('/products/new')}
-                >
+            <div
+                style={{
+                    marginBottom: 16,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                }}
+            >
+                <Title level={3} style={{ margin: 0 }}>
+                    Products
+                </Title>
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/products/new')}>
                     Add Product
                 </Button>
             </div>
 
             <Card>
-                <Space style={{ marginBottom: 16, width: '100%' }} orientation="vertical">
-                    <Space wrap>
-                        <Search
-                            placeholder="Search products..."
-                            allowClear
-                            enterButton={<SearchOutlined />}
-                            style={{ width: 300 }}
-                            onSearch={setSearchText}
-                        />
-                        <Select
-                            placeholder="Category"
-                            style={{ width: 150 }}
-                            allowClear
-                            onChange={setCategoryFilter}
-                        >
-                            <Option value="Dairy">Dairy</Option>
-                            <Option value="Bakery">Bakery</Option>
-                            <Option value="Fruits">Fruits</Option>
-                            <Option value="Vegetables">Vegetables</Option>
-                            <Option value="Meat">Meat</Option>
-                        </Select>
-                        <Select
-                            placeholder="Status"
-                            style={{ width: 120 }}
-                            allowClear
-                            onChange={setStatusFilter}
-                        >
-                            <Option value="active">Active</Option>
-                            <Option value="inactive">Inactive</Option>
-                        </Select>
-                    </Space>
+                <Space wrap style={{ marginBottom: 16 }}>
+                    <Input.Search
+                        placeholder="Search by name…"
+                        allowClear
+                        enterButton={<SearchOutlined />}
+                        style={{ width: 300 }}
+                        onSearch={(value) => {
+                            setPage(1);
+                            setSearch(value);
+                        }}
+                    />
+                    <Select
+                        placeholder="All categories"
+                        style={{ width: 200 }}
+                        allowClear
+                        value={categoryId}
+                        onChange={(value) => {
+                            setPage(1);
+                            setCategoryId(value);
+                        }}
+                        options={categories.map((c) => ({ label: c.name, value: c.category_id }))}
+                    />
+                    <Select
+                        placeholder="All statuses"
+                        style={{ width: 150 }}
+                        allowClear
+                        value={isActive}
+                        onChange={(value) => {
+                            setPage(1);
+                            setIsActive(value);
+                        }}
+                        options={[
+                            { label: 'Active', value: true },
+                            { label: 'Inactive', value: false },
+                        ]}
+                    />
                 </Space>
 
                 <Table
+                    rowKey="product_id"
                     columns={columns}
-                    dataSource={products}
-                    rowKey="_id"
-                    loading={loading}
+                    dataSource={data?.products ?? []}
+                    loading={isLoading}
+                    locale={{
+                        emptyText: isError ? 'Failed to load products.' : 'No products found.',
+                    }}
                     pagination={{
-                        current: currentPage,
-                        pageSize: pageSize,
-                        total: total,
+                        current: page,
+                        pageSize,
+                        total: data?.total ?? 0,
                         showSizeChanger: true,
-                        showTotal: (total) => `Total ${total} products`,
-                        onChange: (page, size) => {
-                            setCurrentPage(page);
-                            setPageSize(size);
+                        showTotal: (t) => `Total ${t} products`,
+                        onChange: (nextPage, nextSize) => {
+                            setPage(nextPage);
+                            setPageSize(nextSize);
                         },
                     }}
                 />

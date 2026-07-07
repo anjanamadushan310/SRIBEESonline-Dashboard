@@ -1,123 +1,139 @@
-import React, { useState, useEffect } from 'react';
-import { Table, Card, message } from 'antd';
-import { UserOutlined } from '@ant-design/icons';
+/**
+ * Customer Management (Super Admin + Customer Support)
+ * Table of customer accounts with search, pagination and an active/inactive
+ * toggle. TanStack Query against /api/v1/admin/customers.
+ */
+import React, { useState } from 'react';
+import { Card, Table, Input, Tag, Switch, Space, Typography, App } from 'antd';
+import { SearchOutlined, UserOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { customersApi } from '../../api/customers.api';
+import type { Customer } from '../../api/customers.api';
 
-interface Customer {
-    user_id: string;
-    name: string;
-    email: string;
-    phone?: string;
-    total_orders: number;
-    total_spent: number;
-    created_at: string;
-}
+const { Title, Text } = Typography;
+
+const CUSTOMERS_KEY = 'customers';
 
 const CustomerList: React.FC = () => {
-    const [customers, setCustomers] = useState<Customer[]>([]);
-    const [loading, setLoading] = useState(false);
+    const { message } = App.useApp();
+    const queryClient = useQueryClient();
 
-    useEffect(() => {
-        fetchCustomers();
-    }, []);
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [search, setSearch] = useState('');
 
-    const fetchCustomers = async () => {
-        try {
-            setLoading(true);
-            // API call would go here
-            // const response = await customerApi.getAll();
+    const { data, isLoading, isError } = useQuery({
+        queryKey: [CUSTOMERS_KEY, { page, pageSize, search }],
+        queryFn: () => customersApi.list({ page, limit: pageSize, search: search || undefined }),
+        placeholderData: keepPreviousData,
+    });
 
-            // Demo data
-            const demoCustomers: Customer[] = [
-                {
-                    user_id: '1',
-                    name: 'John Doe',
-                    email: 'john@example.com',
-                    phone: '+1234567890',
-                    total_orders: 15,
-                    total_spent: 1250.50,
-                    created_at: '2025-12-01T00:00:00Z',
-                },
-                {
-                    user_id: '2',
-                    name: 'Jane Smith',
-                    email: 'jane@example.com',
-                    phone: '+1234567891',
-                    total_orders: 8,
-                    total_spent: 680.25,
-                    created_at: '2025-12-15T00:00:00Z',
-                },
-                {
-                    user_id: '3',
-                    name: 'Bob Johnson',
-                    email: 'bob@example.com',
-                    total_orders: 22,
-                    total_spent: 2100.00,
-                    created_at: '2025-11-20T00:00:00Z',
-                },
-            ];
-            setCustomers(demoCustomers);
-        } catch (error) {
-            message.error('Failed to load customers');
-        } finally {
-            setLoading(false);
-        }
-    };
+    const statusMutation = useMutation({
+        mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+            customersApi.setStatus(id, isActive),
+        onSuccess: (_res, vars) => {
+            message.success(`Customer ${vars.isActive ? 'activated' : 'deactivated'}.`);
+            queryClient.invalidateQueries({ queryKey: [CUSTOMERS_KEY] });
+        },
+        onError: (err: any) =>
+            message.error(err.response?.data?.detail || 'Failed to update status.'),
+    });
 
     const columns: ColumnsType<Customer> = [
         {
-            title: 'Customer',
-            dataIndex: 'name',
+            title: 'Name',
             key: 'name',
-            render: (name: string, record: Customer) => (
-                <div>
-                    <div style={{ fontWeight: 'bold' }}>
-                        <UserOutlined style={{ marginRight: 8 }} />
-                        {name}
-                    </div>
-                    <div style={{ fontSize: 12, color: '#999' }}>{record.email}</div>
-                    {record.phone && (
-                        <div style={{ fontSize: 12, color: '#999' }}>{record.phone}</div>
-                    )}
-                </div>
+            render: (_, record) => (
+                <Space>
+                    <UserOutlined style={{ color: record.is_active ? '#1890ff' : '#bbb' }} />
+                    <Text strong>{record.full_name || 'Unnamed'}</Text>
+                    {record.is_verified && <CheckCircleOutlined style={{ color: '#52c41a' }} />}
+                </Space>
             ),
         },
         {
-            title: 'Total Orders',
-            dataIndex: 'total_orders',
-            key: 'total_orders',
-            sorter: (a, b) => a.total_orders - b.total_orders,
+            title: 'Email',
+            dataIndex: 'email',
+            key: 'email',
         },
         {
-            title: 'Total Spent',
-            dataIndex: 'total_spent',
-            key: 'total_spent',
-            render: (amount: number) => `$${amount.toFixed(2)}`,
-            sorter: (a, b) => a.total_spent - b.total_spent,
+            title: 'Phone',
+            dataIndex: 'phone',
+            key: 'phone',
+            render: (phone: string | null) => phone || <span style={{ color: '#bbb' }}>—</span>,
         },
         {
-            title: 'Member Since',
+            title: 'Joined',
             dataIndex: 'created_at',
             key: 'created_at',
-            render: (date: string) => dayjs(date).format('MMM DD, YYYY'),
-            sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+            render: (d: string | null) => (d ? dayjs(d).format('MMM DD, YYYY') : '—'),
+            sorter: (a, b) =>
+                dayjs(a.created_at ?? 0).valueOf() - dayjs(b.created_at ?? 0).valueOf(),
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            width: 160,
+            render: (_, record) => (
+                <Space>
+                    <Switch
+                        size="small"
+                        checked={record.is_active}
+                        loading={
+                            statusMutation.isPending &&
+                            statusMutation.variables?.id === record.user_id
+                        }
+                        onChange={(checked) =>
+                            statusMutation.mutate({ id: record.user_id, isActive: checked })
+                        }
+                    />
+                    <Tag color={record.is_active ? 'green' : 'default'}>
+                        {record.is_active ? 'Active' : 'Inactive'}
+                    </Tag>
+                </Space>
+            ),
         },
     ];
 
     return (
         <div>
-            <h1 style={{ marginBottom: 16 }}>Customers</h1>
+            <Title level={3} style={{ marginTop: 0 }}>
+                <Space>
+                    <UserOutlined />
+                    Customers
+                </Space>
+            </Title>
 
             <Card>
+                <Input.Search
+                    placeholder="Search by name, email or phone…"
+                    allowClear
+                    enterButton={<SearchOutlined />}
+                    style={{ width: 340, marginBottom: 16 }}
+                    onSearch={(value) => {
+                        setPage(1);
+                        setSearch(value);
+                    }}
+                />
+
                 <Table
-                    columns={columns}
-                    dataSource={customers}
                     rowKey="user_id"
-                    loading={loading}
+                    columns={columns}
+                    dataSource={data?.customers ?? []}
+                    loading={isLoading}
+                    locale={{ emptyText: isError ? 'Failed to load customers.' : 'No customers found.' }}
                     pagination={{
+                        current: page,
+                        pageSize,
+                        total: data?.total ?? 0,
                         showSizeChanger: true,
-                        showTotal: (total) => `Total ${total} customers`,
+                        showTotal: (t) => `Total ${t} customers`,
+                        onChange: (p, s) => {
+                            setPage(p);
+                            setPageSize(s);
+                        },
                     }}
                 />
             </Card>

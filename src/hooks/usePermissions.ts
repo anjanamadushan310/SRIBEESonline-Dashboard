@@ -29,16 +29,16 @@ function checkAnyPermission(role: AdminRole, resource: Resource | string): boole
     );
 }
 
-export type DashboardType = 'admin' | 'manager' | 'staff' | 'support' | 'inventory';
+export type DashboardType = 'admin' | 'manager' | 'marketing' | 'support' | 'inventory';
 
 function getDashboardType(role: AdminRole): DashboardType {
     switch (role) {
         case AdminRole.SUPER_ADMIN: return 'admin';
         case AdminRole.BRANCH_MANAGER: return 'manager';
-        case AdminRole.STAFF: return 'staff';
-        case AdminRole.SUPPORT: return 'support';
-        case AdminRole.INVENTORY: return 'inventory';
-        default: return 'staff';
+        case AdminRole.MARKETING_MANAGER: return 'marketing';
+        case AdminRole.CUSTOMER_SUPPORT: return 'support';
+        case AdminRole.INVENTORY_MANAGER: return 'inventory';
+        default: return 'support';
     }
 }
 
@@ -65,7 +65,7 @@ export const usePermissions = () => {
                 role: undefined,
                 isSuperAdmin: false,
                 isBranchManager: false,
-                isStaff: false,
+                isMarketing: false,
                 isSupport: false,
                 isInventory: false,
                 
@@ -76,7 +76,7 @@ export const usePermissions = () => {
                 canAccessBranch: () => false,
                 
                 // Dashboard
-                dashboardType: 'staff' as DashboardType,
+                dashboardType: 'support' as DashboardType,
                 
                 // Specific permissions
                 canManageUsers: false,
@@ -106,11 +106,13 @@ export const usePermissions = () => {
             '/': { resource: 'dashboard', action: 'read' },
             '/products': { resource: 'products', action: 'read' },
             '/products/new': { resource: 'products', action: 'create' },
+            '/categories': { resource: 'categories', action: 'read' },
             '/orders': { resource: 'orders', action: 'read' },
             '/customers': { resource: 'customers', action: 'read' },
             '/inventory': { resource: 'inventory', action: 'read' },
             '/analytics': { resource: 'analytics', action: 'read' },
             '/watchlist': { resource: 'watchlist', action: 'read' },
+            '/coupons': { resource: 'marketing', action: 'read' },
             '/users': { resource: 'users', action: 'read' },
             '/branches': { resource: 'branches', action: 'read' },
             '/settings': { resource: 'settings', action: 'read' },
@@ -126,13 +128,13 @@ export const usePermissions = () => {
         // Role checks
         const isSuperAdmin = role === AdminRole.SUPER_ADMIN;
         const isBranchManager = role === AdminRole.BRANCH_MANAGER;
-        const isStaff = role === AdminRole.STAFF;
-        const isSupport = role === AdminRole.SUPPORT;
-        const isInventory = role === AdminRole.INVENTORY;
+        const isMarketing = role === AdminRole.MARKETING_MANAGER;
+        const isSupport = role === AdminRole.CUSTOMER_SUPPORT;
+        const isInventory = role === AdminRole.INVENTORY_MANAGER;
 
         // Branch access
-        const requiresBranchIsolation = role === AdminRole.BRANCH_MANAGER || role === AdminRole.STAFF;
-        const canAccessAllBranches = role === AdminRole.SUPER_ADMIN || role === AdminRole.SUPPORT || role === AdminRole.INVENTORY;
+        const requiresBranchIsolation = role === AdminRole.BRANCH_MANAGER;
+        const canAccessAllBranches = !requiresBranchIsolation;
         const canAccessBranch = (targetBranchId: string) => {
             if (canAccessAllBranches) return true;
             return branchId === targetBranchId;
@@ -141,13 +143,13 @@ export const usePermissions = () => {
         // Specific permissions
         const canManageUsers = isSuperAdmin;
         const canManageBranches = isSuperAdmin;
-        const canApproveTransfers = role === AdminRole.SUPER_ADMIN || role === AdminRole.INVENTORY;
-        const canCreateTransfers = role === AdminRole.SUPER_ADMIN || role === AdminRole.BRANCH_MANAGER || role === AdminRole.INVENTORY;
-        const canViewAnalytics = role === AdminRole.SUPER_ADMIN || role === AdminRole.BRANCH_MANAGER || role === AdminRole.INVENTORY;
+        const canApproveTransfers = role === AdminRole.SUPER_ADMIN || role === AdminRole.INVENTORY_MANAGER;
+        const canCreateTransfers = role === AdminRole.SUPER_ADMIN || role === AdminRole.BRANCH_MANAGER || role === AdminRole.INVENTORY_MANAGER;
+        const canViewAnalytics = role === AdminRole.SUPER_ADMIN || role === AdminRole.BRANCH_MANAGER || role === AdminRole.INVENTORY_MANAGER || role === AdminRole.MARKETING_MANAGER;
         const canViewGlobalAnalytics = isSuperAdmin;
         const canViewWatchlistAnalytics = role === AdminRole.SUPER_ADMIN || role === AdminRole.BRANCH_MANAGER;
-        const canEditProducts = role === AdminRole.SUPER_ADMIN || role === AdminRole.INVENTORY;
-        const canUpdateInventory = role === AdminRole.SUPER_ADMIN || role === AdminRole.BRANCH_MANAGER || role === AdminRole.INVENTORY;
+        const canEditProducts = role === AdminRole.SUPER_ADMIN || role === AdminRole.INVENTORY_MANAGER;
+        const canUpdateInventory = role === AdminRole.SUPER_ADMIN || role === AdminRole.BRANCH_MANAGER || role === AdminRole.INVENTORY_MANAGER;
 
         return {
             // Basic checks
@@ -164,7 +166,7 @@ export const usePermissions = () => {
             role,
             isSuperAdmin,
             isBranchManager,
-            isStaff,
+            isMarketing,
             isSupport,
             isInventory,
             

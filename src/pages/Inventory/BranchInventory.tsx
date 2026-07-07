@@ -1,423 +1,307 @@
 /**
- * Branch Inventory Page
- * Shows inventory levels for the current branch (or all branches for super admin)
+ * Branch Inventory (Module 7.5)
+ *
+ * Branch-scoped stock table. The server (inject_branch_filter) already limits
+ * rows to the caller's branch for Branch/Inventory Managers and returns all
+ * branches for Super Admins; the response's `scope` tells us whether to show
+ * the Branch column.
  */
-
-import React, { useEffect, useState } from 'react';
-import { 
-    Card, 
-    Row, 
-    Col, 
-    Table, 
-    Spin, 
-    Alert, 
-    Select, 
-    Tag, 
-    Progress, 
-    Space, 
-    Typography,
-    Button,
-    Input,
-    Tooltip,
-    message,
-} from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+import React, { useState } from 'react';
 import {
-    ShopOutlined,
-    InboxOutlined,
-    SearchOutlined,
-    ReloadOutlined,
-    WarningOutlined,
-    ExclamationCircleOutlined,
-} from '@ant-design/icons';
-import { useAuthStore } from '../../store/authStore';
-import { useBranchStore } from '../../store/branchStore';
-import { AdminRole } from '../../types/admin.types';
-import type { BranchInventoryItem } from '../../types/branch.types';
+    Card,
+    Table,
+    Tag,
+    Space,
+    Input,
+    Button,
+    Drawer,
+    Form,
+    InputNumber,
+    Switch,
+    Select,
+    App,
+    Typography,
+    Descriptions,
+} from 'antd';
+import { EditOutlined, SearchOutlined, InboxOutlined } from '@ant-design/icons';
+import type { ColumnsType } from 'antd/es/table';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { inventoryApi } from '../../api/inventory.api';
+import type { InventoryItem, InventoryUpdatePayload } from '../../api/inventory.api';
+import { branchesApi } from '../../api/branches.api';
+import { usePermissions } from '../../hooks/usePermissions';
 
 const { Title, Text } = Typography;
-const { Search } = Input;
+
+const statusTag = (item: InventoryItem) => {
+    if (item.stock_quantity <= 0) return <Tag color="red">Out of Stock</Tag>;
+    if (item.is_low_stock) return <Tag color="red">Low Stock</Tag>;
+    return <Tag color="green">In Stock</Tag>;
+};
 
 const BranchInventory: React.FC = () => {
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [selectedBranch, setSelectedBranch] = useState<string>('all');
-    const [searchQuery, setSearchQuery] = useState('');
-    const [inventory, setInventory] = useState<BranchInventoryItem[]>([]);
+    const { message } = App.useApp();
+    const queryClient = useQueryClient();
+    const { isSuperAdmin } = usePermissions();
+    const [form] = Form.useForm<InventoryUpdatePayload>();
 
-    const user = useAuthStore((state) => state.user);
-    const { branches } = useBranchStore();
-    const isSuperAdmin = user?.role === AdminRole.SUPER_ADMIN;
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [search, setSearch] = useState('');
+    const [lowStockOnly, setLowStockOnly] = useState(false);
+    const [branchId, setBranchId] = useState<string | undefined>(undefined);
+    const [editing, setEditing] = useState<InventoryItem | null>(null);
 
-    useEffect(() => {
-        fetchInventory();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedBranch]);
-
-    const fetchInventory = async () => {
-        try {
-            setLoading(true);
-            setError(null);
-
-            // Mock data - in production, fetch from API
-            const mockInventory: BranchInventoryItem[] = [
-                {
-                    inventory_id: '1',
-                    branch_id: '44444444-4444-4444-4444-444444444444',
-                    branch_name: 'Colombo Central',
-                    product_id: 'p1',
-                    product_name: 'Organic Ceylon Tea 500g',
-                    product_sku: 'TEA-500G-01',
-                    variant_name: 'Premium Blend',
-                    stock_quantity: 45,
-                    reserved_quantity: 5,
-                    available_quantity: 40,
-                    low_stock_threshold: 20,
-                    reorder_point: 30,
-                    max_stock_level: 100,
-                    is_low_stock: false,
-                    is_out_of_stock: false,
-                    last_restocked: '2026-01-15T10:00:00Z',
-                    created_at: '2025-01-01T00:00:00Z',
-                    updated_at: '2026-01-28T12:00:00Z',
-                },
-                {
-                    inventory_id: '2',
-                    branch_id: '44444444-4444-4444-4444-444444444444',
-                    branch_name: 'Colombo Central',
-                    product_id: 'p2',
-                    product_name: 'Fresh Coconut Oil 1L',
-                    product_sku: 'OIL-1L-02',
-                    variant_name: 'Extra Virgin',
-                    stock_quantity: 8,
-                    reserved_quantity: 3,
-                    available_quantity: 5,
-                    low_stock_threshold: 25,
-                    reorder_point: 35,
-                    max_stock_level: 80,
-                    is_low_stock: true,
-                    is_out_of_stock: false,
-                    last_restocked: '2026-01-10T08:00:00Z',
-                    created_at: '2025-01-01T00:00:00Z',
-                    updated_at: '2026-01-28T14:00:00Z',
-                },
-                {
-                    inventory_id: '3',
-                    branch_id: '55555555-5555-5555-5555-555555555555',
-                    branch_name: 'Kandy City',
-                    product_id: 'p3',
-                    product_name: 'Basmati Rice 5kg',
-                    product_sku: 'RICE-5KG-03',
-                    variant_name: 'Long Grain',
-                    stock_quantity: 0,
-                    reserved_quantity: 0,
-                    available_quantity: 0,
-                    low_stock_threshold: 30,
-                    reorder_point: 40,
-                    max_stock_level: 150,
-                    is_low_stock: false,
-                    is_out_of_stock: true,
-                    created_at: '2025-01-01T00:00:00Z',
-                    updated_at: '2026-01-28T10:00:00Z',
-                },
-                {
-                    inventory_id: '4',
-                    branch_id: '55555555-5555-5555-5555-555555555555',
-                    branch_name: 'Kandy City',
-                    product_id: 'p4',
-                    product_name: 'Cinnamon Sticks Premium',
-                    product_sku: 'CINN-100G-04',
-                    variant_name: '100g Pack',
-                    stock_quantity: 75,
-                    reserved_quantity: 10,
-                    available_quantity: 65,
-                    low_stock_threshold: 25,
-                    reorder_point: 35,
-                    max_stock_level: 120,
-                    is_low_stock: false,
-                    is_out_of_stock: false,
-                    last_restocked: '2026-01-20T09:00:00Z',
-                    created_at: '2025-01-01T00:00:00Z',
-                    updated_at: '2026-01-28T16:00:00Z',
-                },
-                {
-                    inventory_id: '5',
-                    branch_id: '66666666-6666-6666-6666-666666666666',
-                    branch_name: 'Galle Fort',
-                    product_id: 'p5',
-                    product_name: 'Cardamom Pods',
-                    product_sku: 'CARD-50G-05',
-                    variant_name: '50g Premium',
-                    stock_quantity: 22,
-                    reserved_quantity: 2,
-                    available_quantity: 20,
-                    low_stock_threshold: 20,
-                    reorder_point: 25,
-                    max_stock_level: 60,
-                    is_low_stock: false,
-                    is_out_of_stock: false,
-                    last_restocked: '2026-01-22T11:00:00Z',
-                    created_at: '2025-01-01T00:00:00Z',
-                    updated_at: '2026-01-28T09:00:00Z',
-                },
-            ];
-
-            // Filter by branch if not super admin or if specific branch selected
-            let filteredInventory = mockInventory;
-            if (!isSuperAdmin && user?.branch_id) {
-                filteredInventory = mockInventory.filter(item => item.branch_id === user.branch_id);
-            } else if (selectedBranch !== 'all') {
-                filteredInventory = mockInventory.filter(item => item.branch_id === selectedBranch);
-            }
-
-            setInventory(filteredInventory);
-
-        } catch (err: unknown) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to load inventory data';
-            console.error('Inventory error:', err);
-            setError(errorMessage);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Filter by search query
-    const filteredInventory = inventory.filter(item => {
-        if (!searchQuery) return true;
-        const query = searchQuery.toLowerCase();
-        return (
-            item.product_name.toLowerCase().includes(query) ||
-            item.product_sku.toLowerCase().includes(query) ||
-            item.variant_name?.toLowerCase().includes(query)
-        );
+    // Branch options for the Super Admin branch filter (branches API is now live).
+    const { data: branches = [] } = useQuery({
+        queryKey: ['admin', 'branches'],
+        queryFn: branchesApi.list,
+        enabled: isSuperAdmin,
     });
 
-    // Calculate stats
-    const stats = {
-        totalItems: filteredInventory.length,
-        lowStock: filteredInventory.filter(item => item.is_low_stock).length,
-        outOfStock: filteredInventory.filter(item => item.is_out_of_stock).length,
-        healthy: filteredInventory.filter(item => !item.is_low_stock && !item.is_out_of_stock).length,
+    const queryKey = ['admin', 'inventory', { page, pageSize, search, lowStockOnly, branchId }];
+
+    const { data, isLoading, isError } = useQuery({
+        queryKey,
+        queryFn: () =>
+            inventoryApi.list({
+                page,
+                limit: pageSize,
+                search: search || undefined,
+                low_stock_only: lowStockOnly || undefined,
+                branch_id: branchId, // ignored by the server for non-super admins
+            }),
+        placeholderData: keepPreviousData,
+    });
+
+    // Prefer the server's scope; fall back to the local role before data loads.
+    const showBranchColumn = data?.scope.is_super_admin ?? isSuperAdmin;
+
+    const updateMutation = useMutation({
+        mutationFn: ({ id, payload }: { id: string; payload: InventoryUpdatePayload }) =>
+            inventoryApi.update(id, payload),
+        onSuccess: () => {
+            message.success('Inventory updated.');
+            setEditing(null);
+            queryClient.invalidateQueries({ queryKey: ['admin', 'inventory'] });
+        },
+        onError: (err: any) =>
+            message.error(err.response?.data?.detail || 'Failed to update inventory.'),
+    });
+
+    const openEdit = (item: InventoryItem) => {
+        setEditing(item);
+        form.setFieldsValue({
+            stock_quantity: item.stock_quantity,
+            reserved_quantity: item.reserved_quantity,
+            low_stock_threshold: item.low_stock_threshold,
+        });
     };
 
-    const getStockStatus = (item: BranchInventoryItem) => {
-        if (item.is_out_of_stock) {
-            return { color: '#ff4d4f', text: 'Out of Stock', icon: <ExclamationCircleOutlined /> };
+    const handleSave = async () => {
+        const values = await form.validateFields();
+        if (editing) {
+            updateMutation.mutate({ id: editing.inventory_id, payload: values });
         }
-        if (item.is_low_stock) {
-            return { color: '#faad14', text: 'Low Stock', icon: <WarningOutlined /> };
-        }
-        return { color: '#52c41a', text: 'In Stock', icon: <InboxOutlined /> };
     };
 
-    const columns: ColumnsType<BranchInventoryItem> = [
+    const columns: ColumnsType<InventoryItem> = [
         {
             title: 'Product',
-            key: 'product',
-            render: (_, record) => (
-                <Space orientation="vertical" size={0}>
-                    <Text strong>{record.product_name}</Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                        SKU: {record.product_sku}
-                    </Text>
-                    {record.variant_name && (
-                        <Tag style={{ marginTop: 4 }}>{record.variant_name}</Tag>
-                    )}
-                </Space>
-            ),
+            dataIndex: 'product_name',
+            key: 'product_name',
+            render: (name: string) => <Text strong>{name}</Text>,
         },
-        ...(isSuperAdmin ? [{
-            title: 'Branch',
-            dataIndex: 'branch_name',
-            key: 'branch_name',
-            render: (name: string) => (
-                <Space>
-                    <ShopOutlined />
-                    {name}
-                </Space>
-            ),
-        }] : []),
         {
-            title: 'Stock Level',
-            key: 'stock',
-            sorter: (a, b) => a.stock_quantity - b.stock_quantity,
-            render: (_, record) => {
-                const percentage = Math.round((record.stock_quantity / record.max_stock_level) * 100);
-                const status = getStockStatus(record);
-                return (
-                    <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                            <Progress 
-                                percent={percentage}
-                                size="small"
-                                status={record.is_out_of_stock ? 'exception' : record.is_low_stock ? 'normal' : 'success'}
-                                style={{ width: 100 }}
-                                format={() => ''}
-                            />
-                            <Text strong>{record.stock_quantity}</Text>
-                            <Text type="secondary">/ {record.max_stock_level}</Text>
-                        </div>
-                        <Tag color={status.color} icon={status.icon}>
-                            {status.text}
-                        </Tag>
-                    </div>
-                );
-            },
+            title: 'SKU',
+            dataIndex: 'sku',
+            key: 'sku',
+            render: (sku: string | null) => sku || <span style={{ color: '#bbb' }}>—</span>,
+        },
+        ...(showBranchColumn
+            ? [
+                  {
+                      title: 'Branch',
+                      dataIndex: 'branch_name',
+                      key: 'branch_name',
+                      render: (name: string) => <Tag color="geekblue">{name}</Tag>,
+                  } as ColumnsType<InventoryItem>[number],
+              ]
+            : []),
+        {
+            title: 'Stock',
+            dataIndex: 'stock_quantity',
+            key: 'stock_quantity',
+            align: 'right',
+            width: 90,
+        },
+        {
+            title: 'Reserved',
+            dataIndex: 'reserved_quantity',
+            key: 'reserved_quantity',
+            align: 'right',
+            width: 100,
         },
         {
             title: 'Available',
-            key: 'available',
-            render: (_, record) => (
-                <Space orientation="vertical" size={0}>
-                    <Text strong style={{ color: record.available_quantity > 0 ? '#52c41a' : '#ff4d4f' }}>
-                        {record.available_quantity}
-                    </Text>
-                    {record.reserved_quantity > 0 && (
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                            ({record.reserved_quantity} reserved)
-                        </Text>
-                    )}
-                </Space>
+            dataIndex: 'available_quantity',
+            key: 'available_quantity',
+            align: 'right',
+            width: 100,
+            render: (v: number) => (
+                <Text strong style={{ color: v > 0 ? '#389e0d' : '#cf1322' }}>
+                    {v}
+                </Text>
             ),
         },
         {
-            title: 'Thresholds',
-            key: 'thresholds',
-            render: (_, record) => (
-                <Space orientation="vertical" size={0}>
-                    <Text style={{ fontSize: 12 }}>
-                        Low: <Text strong>{record.low_stock_threshold}</Text>
-                    </Text>
-                    <Text style={{ fontSize: 12 }}>
-                        Reorder: <Text strong>{record.reorder_point}</Text>
-                    </Text>
-                </Space>
-            ),
+            title: 'Status',
+            key: 'status',
+            width: 130,
+            render: (_, record) => statusTag(record),
         },
         {
             title: 'Actions',
             key: 'actions',
-            width: 150,
+            width: 120,
             render: (_, record) => (
-                <Space>
-                    <Tooltip title="Request Stock Transfer">
-                        <Button 
-                            size="small" 
-                            type="primary"
-                            disabled={!record.is_low_stock && !record.is_out_of_stock}
-                            onClick={() => message.info('Transfer request feature coming soon')}
-                        >
-                            Transfer
-                        </Button>
-                    </Tooltip>
-                </Space>
+                <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)}>
+                    Quick Edit
+                </Button>
             ),
         },
     ];
 
-    if (loading) {
-        return (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
-                <Spin size="large" tip="Loading inventory..." />
-            </div>
-        );
-    }
-
     return (
-        <div style={{ padding: '24px' }}>
-            {/* Header */}
-            <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-                <div>
-                    <Title level={2} style={{ margin: 0 }}>
-                        <Space>
-                            <InboxOutlined />
-                            Branch Inventory
-                        </Space>
-                    </Title>
-                    <Text type="secondary">Manage inventory levels across branches</Text>
-                </div>
-                <Button icon={<ReloadOutlined />} onClick={fetchInventory}>
-                    Refresh
-                </Button>
-            </div>
-
-            {error && (
-                <Alert message={error} type="warning" showIcon closable style={{ marginBottom: '24px' }} />
-            )}
-
-            {/* Stats Cards */}
-            <Row gutter={[16, 16]} style={{ marginBottom: '24px' }}>
-                <Col xs={12} sm={6}>
-                    <Card>
-                        <div style={{ textAlign: 'center' }}>
-                            <Text type="secondary">Total Items</Text>
-                            <Title level={3} style={{ margin: '8px 0 0' }}>{stats.totalItems}</Title>
-                        </div>
-                    </Card>
-                </Col>
-                <Col xs={12} sm={6}>
-                    <Card style={{ borderLeft: '4px solid #52c41a' }}>
-                        <div style={{ textAlign: 'center' }}>
-                            <Text type="secondary">Healthy</Text>
-                            <Title level={3} style={{ margin: '8px 0 0', color: '#52c41a' }}>{stats.healthy}</Title>
-                        </div>
-                    </Card>
-                </Col>
-                <Col xs={12} sm={6}>
-                    <Card style={{ borderLeft: '4px solid #faad14' }}>
-                        <div style={{ textAlign: 'center' }}>
-                            <Text type="secondary">Low Stock</Text>
-                            <Title level={3} style={{ margin: '8px 0 0', color: '#faad14' }}>{stats.lowStock}</Title>
-                        </div>
-                    </Card>
-                </Col>
-                <Col xs={12} sm={6}>
-                    <Card style={{ borderLeft: '4px solid #ff4d4f' }}>
-                        <div style={{ textAlign: 'center' }}>
-                            <Text type="secondary">Out of Stock</Text>
-                            <Title level={3} style={{ margin: '8px 0 0', color: '#ff4d4f' }}>{stats.outOfStock}</Title>
-                        </div>
-                    </Card>
-                </Col>
-            </Row>
-
-            {/* Filters */}
-            <Card style={{ marginBottom: '24px' }}>
-                <Space wrap>
-                    <Search
-                        placeholder="Search products..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        style={{ width: 250 }}
-                        allowClear
-                        prefix={<SearchOutlined />}
-                    />
-                    {isSuperAdmin && (
-                        <Select
-                            value={selectedBranch}
-                            onChange={setSelectedBranch}
-                            style={{ width: 180 }}
-                        >
-                            <Select.Option value="all">All Branches</Select.Option>
-                            {branches.map((branch) => (
-                                <Select.Option key={branch.branch_id} value={branch.branch_id}>
-                                    {branch.name}
-                                </Select.Option>
-                            ))}
-                        </Select>
-                    )}
+        <div>
+            <Title level={3} style={{ marginTop: 0 }}>
+                <Space>
+                    <InboxOutlined />
+                    Branch Inventory
                 </Space>
-            </Card>
+            </Title>
 
-            {/* Inventory Table */}
             <Card>
+                <Space wrap style={{ marginBottom: 16 }}>
+                    <Input.Search
+                        placeholder="Search product or SKU…"
+                        allowClear
+                        enterButton={<SearchOutlined />}
+                        style={{ width: 300 }}
+                        onSearch={(value) => {
+                            setPage(1);
+                            setSearch(value);
+                        }}
+                    />
+                    {showBranchColumn && (
+                        <Select
+                            placeholder="All branches"
+                            style={{ width: 220 }}
+                            allowClear
+                            value={branchId}
+                            onChange={(value) => {
+                                setPage(1);
+                                setBranchId(value);
+                            }}
+                            options={branches.map((b) => ({ label: b.name, value: b.branch_id }))}
+                        />
+                    )}
+                    <Space>
+                        <Text type="secondary">Low stock only</Text>
+                        <Switch
+                            checked={lowStockOnly}
+                            onChange={(checked) => {
+                                setPage(1);
+                                setLowStockOnly(checked);
+                            }}
+                        />
+                    </Space>
+                </Space>
+
                 <Table
-                    dataSource={filteredInventory}
-                    columns={columns}
                     rowKey="inventory_id"
-                    pagination={{ pageSize: 10, showSizeChanger: true }}
+                    columns={columns}
+                    dataSource={data?.items ?? []}
+                    loading={isLoading}
+                    locale={{
+                        emptyText: isError
+                            ? 'Failed to load inventory.'
+                            : 'No inventory items found.',
+                    }}
+                    pagination={{
+                        current: page,
+                        pageSize,
+                        total: data?.total ?? 0,
+                        showSizeChanger: true,
+                        showTotal: (t) => `Total ${t} items`,
+                        onChange: (nextPage, nextSize) => {
+                            setPage(nextPage);
+                            setPageSize(nextSize);
+                        },
+                    }}
                 />
             </Card>
+
+            <Drawer
+                title="Quick Edit — Inventory"
+                open={!!editing}
+                onClose={() => setEditing(null)}
+                width={420}
+                destroyOnHidden
+                extra={
+                    <Space>
+                        <Button onClick={() => setEditing(null)}>Cancel</Button>
+                        <Button
+                            type="primary"
+                            loading={updateMutation.isPending}
+                            onClick={handleSave}
+                        >
+                            Save
+                        </Button>
+                    </Space>
+                }
+            >
+                {editing && (
+                    <>
+                        <Descriptions column={1} size="small" style={{ marginBottom: 16 }}>
+                            <Descriptions.Item label="Product">
+                                {editing.product_name}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="SKU">
+                                {editing.sku || '—'}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Branch">
+                                {editing.branch_name}
+                            </Descriptions.Item>
+                        </Descriptions>
+
+                        <Form form={form} layout="vertical">
+                            <Form.Item
+                                label="Stock Quantity"
+                                name="stock_quantity"
+                                rules={[{ required: true, message: 'Enter stock quantity' }]}
+                            >
+                                <InputNumber min={0} style={{ width: '100%' }} />
+                            </Form.Item>
+                            <Form.Item
+                                label="Reserved Quantity"
+                                name="reserved_quantity"
+                                rules={[{ required: true, message: 'Enter reserved quantity' }]}
+                            >
+                                <InputNumber min={0} style={{ width: '100%' }} />
+                            </Form.Item>
+                            <Form.Item
+                                label="Low Stock Threshold"
+                                name="low_stock_threshold"
+                                rules={[{ required: true, message: 'Enter low-stock threshold' }]}
+                                extra="Rows at or below this stock level are flagged 'Low Stock'."
+                            >
+                                <InputNumber min={0} style={{ width: '100%' }} />
+                            </Form.Item>
+                        </Form>
+                    </>
+                )}
+            </Drawer>
         </div>
     );
 };

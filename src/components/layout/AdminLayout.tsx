@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Layout, Menu, theme, Tag } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -12,10 +12,16 @@ import {
     BarChartOutlined,
     SettingOutlined,
     MobileOutlined,
+    TagsOutlined,
+    InboxOutlined,
+    TeamOutlined,
+    ApartmentOutlined,
+    GiftOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../../store/authStore';
 import { usePermissions } from '../../hooks/usePermissions';
 import { ROLE_NAMES, AdminRole } from '../../types/admin.types';
+import { authApi } from '../../api/auth.api';
 import type { MenuProps } from 'antd';
 
 const { Header, Sider, Content } = Layout;
@@ -24,11 +30,35 @@ const AdminLayout: React.FC = () => {
     const [collapsed, setCollapsed] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
-    const { user, logout } = useAuthStore();
-    const { canAccessRoute, role } = usePermissions();
+    const { user, logout, updateUser } = useAuthStore();
+    const { canAccessRoute, role, isSuperAdmin, isInventory, isSupport } = usePermissions();
+    // Catalog (Products & Categories) is limited to Super Admin + Inventory Manager.
+    const canManageCatalog = isSuperAdmin || isInventory;
+    // Customers is limited to Super Admin + Customer Support.
+    const canManageCustomers = isSuperAdmin || isSupport;
     const {
         token: { colorBgContainer, borderRadiusLG },
     } = theme.useToken();
+
+    // Sync the displayed profile (full_name, role, branch) with the backend
+    // on initial load. A 401 here is handled by the API client interceptor
+    // (token refresh, or forced logout if the session is truly dead).
+    useEffect(() => {
+        let cancelled = false;
+        authApi
+            .getCurrentUser()
+            .then((profile) => {
+                if (!cancelled) updateUser(profile);
+            })
+            .catch(() => {
+                // Interceptor already handled auth failures; keep cached user
+                // for transient network errors.
+            });
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Define all menu items with their required permissions
     const allMenuItems: MenuProps['items'] = useMemo(() => [
@@ -41,6 +71,16 @@ const AdminLayout: React.FC = () => {
             key: '/products',
             icon: <ShoppingOutlined />,
             label: 'Products',
+        },
+        {
+            key: '/categories',
+            icon: <TagsOutlined />,
+            label: 'Categories',
+        },
+        {
+            key: '/inventory',
+            icon: <InboxOutlined />,
+            label: 'Inventory',
         },
         {
             key: '/orders',
@@ -58,6 +98,21 @@ const AdminLayout: React.FC = () => {
             label: 'Analytics',
         },
         {
+            key: '/coupons',
+            icon: <GiftOutlined />,
+            label: 'Coupons',
+        },
+        {
+            key: '/branches',
+            icon: <ApartmentOutlined />,
+            label: 'Branches',
+        },
+        {
+            key: '/users',
+            icon: <TeamOutlined />,
+            label: 'Admin Users',
+        },
+        {
             key: '/settings',
             icon: <SettingOutlined />,
             label: 'Settings',
@@ -66,12 +121,19 @@ const AdminLayout: React.FC = () => {
                     key: '/settings',
                     label: 'General',
                 },
-                // App Settings - Only visible to Super Admin
-                ...(user?.role === AdminRole.SUPER_ADMIN ? [{
-                    key: '/settings/app',
-                    icon: <MobileOutlined />,
-                    label: 'App Settings',
-                }] : []),
+                // Platform & App Settings - Only visible to Super Admin
+                ...(user?.role === AdminRole.SUPER_ADMIN ? [
+                    {
+                        key: '/settings/platform',
+                        icon: <SettingOutlined />,
+                        label: 'Platform Settings',
+                    },
+                    {
+                        key: '/settings/app',
+                        icon: <MobileOutlined />,
+                        label: 'App Settings',
+                    },
+                ] : []),
             ],
         },
     ], [user?.role]);
@@ -80,15 +142,23 @@ const AdminLayout: React.FC = () => {
     const menuItems = useMemo(() => {
         return allMenuItems.filter((item) => {
             if (!item || typeof item.key !== 'string') return false;
+            // Catalog entries are gated on catalog access; others by route permission.
+            if (item.key === '/products' || item.key === '/categories') {
+                return canManageCatalog;
+            }
+            if (item.key === '/customers') {
+                return canManageCustomers;
+            }
             return canAccessRoute(item.key);
         });
-    }, [allMenuItems, canAccessRoute]);
+    }, [allMenuItems, canAccessRoute, canManageCatalog, canManageCustomers]);
 
     const handleMenuClick: MenuProps['onClick'] = (e) => {
         navigate(e.key);
     };
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
+        await authApi.logout(); // best-effort server session invalidation
         logout();
         navigate('/login');
     };
@@ -140,7 +210,7 @@ const AdminLayout: React.FC = () => {
                             <Tag color="blue">{user.branch_name}</Tag>
                         )}
                         {role && (
-                            <Tag color="green">{ROLE_NAMES[role]}</Tag>
+                            <Tag color="green">{ROLE_NAMES[role] ?? role}</Tag>
                         )}
                         <span>Welcome, {user?.full_name || 'Admin'}</span>
                         <LogoutOutlined

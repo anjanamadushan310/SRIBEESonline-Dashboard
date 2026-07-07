@@ -6,7 +6,7 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
-import { AdminRole } from './types/admin.types';
+import { AdminRole, isValidAdminRole } from './types/admin.types';
 import { Spin } from 'antd';
 
 // Layout
@@ -17,7 +17,7 @@ import Login from './pages/Auth/Login';
 
 // Lazy load pages for better performance
 const Dashboard = lazy(() => import('./pages/Dashboard/index.page'));
-const AdminDashboard = lazy(() => import('./pages/Dashboard/AdminDashboard'));
+const DashboardHome = lazy(() => import('./pages/Dashboard/DashboardHome'));
 const ManagerDashboard = lazy(() => import('./pages/Dashboard/ManagerDashboard'));
 const StaffDashboard = lazy(() => import('./pages/Dashboard/StaffDashboard'));
 
@@ -25,9 +25,14 @@ const StaffDashboard = lazy(() => import('./pages/Dashboard/StaffDashboard'));
 const ProductList = lazy(() => import('./pages/Products/ProductList'));
 const ProductForm = lazy(() => import('./pages/Products/ProductForm'));
 
+// Categories
+const CategoryList = lazy(() => import('./pages/Categories/CategoryList'));
+
+// Marketing
+const CouponList = lazy(() => import('./pages/Marketing/CouponList'));
+
 // Orders
 const OrderList = lazy(() => import('./pages/Orders/OrderList'));
-const OrderDetail = lazy(() => import('./pages/Orders/OrderDetail'));
 
 // Inventory
 const BranchInventory = lazy(() => import('./pages/Inventory/BranchInventory'));
@@ -41,7 +46,6 @@ const BranchAnalytics = lazy(() => import('./pages/Analytics/BranchAnalytics'));
 
 // Users & Branches (Super Admin only)
 const AdminUserList = lazy(() => import('./pages/Users/AdminUserList'));
-const AdminUserForm = lazy(() => import('./pages/Users/AdminUserForm'));
 const BranchList = lazy(() => import('./pages/Branches/BranchList'));
 
 // Customers
@@ -50,6 +54,7 @@ const CustomerList = lazy(() => import('./pages/Customers/CustomerList'));
 // Settings
 const Settings = lazy(() => import('./pages/Settings'));
 const AppSettings = lazy(() => import('./pages/Settings/AppSettings'));
+const PlatformSettings = lazy(() => import('./pages/Settings/PlatformSettings'));
 
 // Loading Spinner Component
 const PageLoader: React.FC = () => (
@@ -58,7 +63,8 @@ const PageLoader: React.FC = () => (
 
 // Protected Route Component - handles hydration from localStorage
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const storeIsAuthenticated = useAuthStore((state) => state.isAuthenticated);
+    const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+    const user = useAuthStore((state) => state.user);
     const [isHydrated, setIsHydrated] = React.useState(() => {
         // Check immediately if already hydrated
         return useAuthStore.persist?.hasHydrated?.() ?? true;
@@ -79,11 +85,9 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
         return <PageLoader />;
     }
 
-    // Also check localStorage directly as a fallback
-    const hasStoredAuth = localStorage.getItem('admin-auth-storage');
-    const isAuthenticated = storeIsAuthenticated || (hasStoredAuth && JSON.parse(hasStoredAuth)?.state?.isAuthenticated);
-
-    if (!isAuthenticated) {
+    // Strict gate: must be authenticated AND carry a role the backend
+    // RBAC actually defines. Anything else goes back to the login screen.
+    if (!isAuthenticated || !user || !isValidAdminRole(user.role)) {
         return <Navigate to="/login" replace />;
     }
 
@@ -118,16 +122,17 @@ const DashboardRouter: React.FC = () => {
     if (!user) return <Navigate to="/login" replace />;
 
     switch (user.role) {
+        // Analytics-permitted roles get the data-driven, branch-scoped dashboard.
         case AdminRole.SUPER_ADMIN:
-            return <AdminDashboard />;
+            return <DashboardHome />;
         case AdminRole.BRANCH_MANAGER:
+            return <DashboardHome />;
+        case AdminRole.MARKETING_MANAGER:
             return <ManagerDashboard />;
-        case AdminRole.STAFF:
-            return <StaffDashboard />;
-        case AdminRole.SUPPORT:
-            return <StaffDashboard />;
-        case AdminRole.INVENTORY:
+        case AdminRole.INVENTORY_MANAGER:
             return <ManagerDashboard />;
+        case AdminRole.CUSTOMER_SUPPORT:
+            return <StaffDashboard />;
         default:
             return <Dashboard />;
     }
@@ -153,27 +158,53 @@ const AppRouter: React.FC = () => {
                         {/* Dashboard - Role-based */}
                         <Route index element={<DashboardRouter />} />
 
-                        {/* Products - Read access for all, edit for specific roles */}
-                        <Route path="products" element={<ProductList />} />
-                        <Route 
-                            path="products/new" 
+                        {/* Catalog: Products & Categories — full CRUD limited to
+                            Super Admin + Inventory Manager (branch/marketing
+                            managers get restricted access in a later module). */}
+                        <Route
+                            path="products"
                             element={
-                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.INVENTORY]}>
+                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.INVENTORY_MANAGER]}>
+                                    <ProductList />
+                                </RoleRoute>
+                            }
+                        />
+                        <Route
+                            path="products/new"
+                            element={
+                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.INVENTORY_MANAGER]}>
                                     <ProductForm />
                                 </RoleRoute>
-                            } 
+                            }
                         />
-                        <Route path="products/:id/edit" element={<ProductForm />} />
+                        <Route
+                            path="products/:id/edit"
+                            element={
+                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.INVENTORY_MANAGER]}>
+                                    <ProductForm />
+                                </RoleRoute>
+                            }
+                        />
+
+                        {/* Categories */}
+                        <Route
+                            path="categories"
+                            element={
+                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.INVENTORY_MANAGER]}>
+                                    <CategoryList />
+                                </RoleRoute>
+                            }
+                        />
 
                         {/* Orders */}
+                        {/* Order details open in a drawer from the list. */}
                         <Route path="orders" element={<OrderList />} />
-                        <Route path="orders/:id" element={<OrderDetail />} />
 
                         {/* Inventory - Manager and above */}
                         <Route 
                             path="inventory" 
                             element={
-                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.BRANCH_MANAGER, AdminRole.INVENTORY]}>
+                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.BRANCH_MANAGER, AdminRole.INVENTORY_MANAGER]}>
                                     <BranchInventory />
                                 </RoleRoute>
                             } 
@@ -181,7 +212,7 @@ const AppRouter: React.FC = () => {
                         <Route 
                             path="inventory/transfers" 
                             element={
-                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.BRANCH_MANAGER, AdminRole.INVENTORY]}>
+                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.BRANCH_MANAGER, AdminRole.INVENTORY_MANAGER]}>
                                     <StockTransfers />
                                 </RoleRoute>
                             } 
@@ -189,7 +220,7 @@ const AppRouter: React.FC = () => {
                         <Route 
                             path="inventory/low-stock" 
                             element={
-                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.BRANCH_MANAGER, AdminRole.INVENTORY]}>
+                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.BRANCH_MANAGER, AdminRole.INVENTORY_MANAGER]}>
                                     <LowStockReport />
                                 </RoleRoute>
                             } 
@@ -199,7 +230,7 @@ const AppRouter: React.FC = () => {
                         <Route 
                             path="analytics" 
                             element={
-                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.BRANCH_MANAGER, AdminRole.INVENTORY]}>
+                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.BRANCH_MANAGER, AdminRole.INVENTORY_MANAGER]}>
                                     <Analytics />
                                 </RoleRoute>
                             } 
@@ -221,33 +252,34 @@ const AppRouter: React.FC = () => {
                             } 
                         />
 
-                        {/* Customers */}
-                        <Route path="customers" element={<CustomerList />} />
+                        {/* Marketing — Coupons (Super Admin + Marketing Manager) */}
+                        <Route
+                            path="coupons"
+                            element={
+                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.MARKETING_MANAGER]}>
+                                    <CouponList />
+                                </RoleRoute>
+                            }
+                        />
 
-                        {/* Users - Super Admin only */}
-                        <Route 
-                            path="users" 
+                        {/* Customers — Super Admin + Customer Support */}
+                        <Route
+                            path="customers"
+                            element={
+                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN, AdminRole.CUSTOMER_SUPPORT]}>
+                                    <CustomerList />
+                                </RoleRoute>
+                            }
+                        />
+
+                        {/* Users - Super Admin only (modal-based CRUD) */}
+                        <Route
+                            path="users"
                             element={
                                 <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN]}>
                                     <AdminUserList />
                                 </RoleRoute>
-                            } 
-                        />
-                        <Route 
-                            path="users/new" 
-                            element={
-                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN]}>
-                                    <AdminUserForm />
-                                </RoleRoute>
-                            } 
-                        />
-                        <Route 
-                            path="users/:id/edit" 
-                            element={
-                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN]}>
-                                    <AdminUserForm />
-                                </RoleRoute>
-                            } 
+                            }
                         />
 
                         {/* Branches - Super Admin only */}
@@ -264,13 +296,23 @@ const AppRouter: React.FC = () => {
                         <Route path="settings" element={<Settings />} />
                         
                         {/* App Settings - Super Admin only (Splash Video, etc.) */}
-                        <Route 
-                            path="settings/app" 
+                        <Route
+                            path="settings/app"
                             element={
                                 <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN]}>
                                     <AppSettings />
                                 </RoleRoute>
-                            } 
+                            }
+                        />
+
+                        {/* Platform Settings - Super Admin only (pricing, tax, splash) */}
+                        <Route
+                            path="settings/platform"
+                            element={
+                                <RoleRoute allowedRoles={[AdminRole.SUPER_ADMIN]}>
+                                    <PlatformSettings />
+                                </RoleRoute>
+                            }
                         />
                     </Route>
 
