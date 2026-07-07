@@ -1,5 +1,5 @@
 /**
- * Branch Types for FreshCart Admin Dashboard
+ * Branch Types for SRIBEESonline Admin Dashboard
  */
 
 // Branch Status

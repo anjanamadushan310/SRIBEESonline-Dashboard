@@ -1,5 +1,5 @@
 /**
- * Admin Types for FreshCart Admin Dashboard
+ * Admin Types for SRIBEESonline Admin Dashboard
  * Defines roles, permissions, and admin user types
  */
 

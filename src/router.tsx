@@ -1,5 +1,5 @@
 /**
- * FreshCart Admin Dashboard Router
+ * SRIBEESonline Admin Dashboard Router
  * Role-based routing with protected routes and branch isolation
  */
 

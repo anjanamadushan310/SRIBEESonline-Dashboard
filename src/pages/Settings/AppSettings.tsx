@@ -270,7 +270,7 @@ const AppSettings: React.FC = () => {
             </Title>
 
             <Paragraph type="secondary">
-                Configure settings for the FreshCart mobile application.
+                Configure settings for the SRIBEESonline mobile application.
             </Paragraph>
 
             <Divider />

@@ -177,7 +177,7 @@ const AdminLayout: React.FC = () => {
                         fontWeight: 'bold',
                     }}
                 >
-                    {collapsed ? 'FC' : 'FreshCart'}
+                    {collapsed ? 'SB' : 'SRIBEESonline'}
                 </div>
                 <Menu
                     theme="dark"

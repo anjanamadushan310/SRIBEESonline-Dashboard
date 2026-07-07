@@ -1,5 +1,5 @@
 /**
- * Product Types for FreshCart Admin Dashboard
+ * Product Types for SRIBEESonline Admin Dashboard
  */
 
 // Product Image Types

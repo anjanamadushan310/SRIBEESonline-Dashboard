@@ -1,5 +1,5 @@
 /**
- * Order Types for FreshCart Admin Dashboard
+ * Order Types for SRIBEESonline Admin Dashboard
  */
 
 // Order Status

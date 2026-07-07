@@ -1,5 +1,5 @@
 /**
- * API Response Types for FreshCart Admin Dashboard
+ * API Response Types for SRIBEESonline Admin Dashboard
  */
 
 // Generic API Response
