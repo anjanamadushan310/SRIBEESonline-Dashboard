@@ -2,6 +2,12 @@
  * Branch Management (Super Admin only)
  * Ant Design table with a create/edit modal, backed by TanStack Query against
  * /api/v1/admin/branches.
+ *
+ * The form aligns with the hyper-local architecture: Province → District are
+ * dependent dropdowns (canonical SL geography), and "Coverage Areas" is a
+ * multi-select of Post Offices sourced from the master directory
+ * (/admin/locations) for the selected district. Selected post offices are sent
+ * as `coverage_post_offices` and the backend syncs PostOfficeBranchMapping.
  */
 import React, { useState } from 'react';
 import {
@@ -11,6 +17,7 @@ import {
     Space,
     Tag,
     Input,
+    Select,
     Modal,
     Form,
     Switch,
@@ -29,27 +36,56 @@ import type { ColumnsType } from 'antd/es/table';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { branchesApi } from '../../api/branches.api';
 import type { Branch, BranchPayload } from '../../api/branches.api';
+import { locationsApi } from '../../api/locations.api';
+import { SL_PROVINCES, districtsForProvince } from '../../data/slLocations';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
 const BRANCHES_KEY = ['admin', 'branches'];
 
+interface BranchFormValues {
+    name: string;
+    code: string;
+    address?: string;
+    province: string;
+    district?: string;
+    coverage_post_offices?: string[];
+    phone?: string;
+    is_active?: boolean;
+}
+
+const uniq = (arr: (string | null | undefined)[]): string[] =>
+    Array.from(new Set(arr.filter((s): s is string => !!s)));
+
 const BranchList: React.FC = () => {
     const { message } = App.useApp();
     const queryClient = useQueryClient();
-    const [form] = Form.useForm<BranchPayload>();
+    const [form] = Form.useForm<BranchFormValues>();
 
     const [modalOpen, setModalOpen] = useState(false);
     const [editing, setEditing] = useState<Branch | null>(null);
     const [search, setSearch] = useState('');
+
+    // Watch province/district so the dependent dropdowns + coverage query react.
+    const provinceValue = Form.useWatch('province', form);
+    const districtValue = Form.useWatch('district', form);
 
     const { data: branches = [], isLoading, isError } = useQuery({
         queryKey: BRANCHES_KEY,
         queryFn: branchesApi.list,
     });
 
-    const invalidate = () => queryClient.invalidateQueries({ queryKey: BRANCHES_KEY });
+    // Post Offices available for the currently-selected district (master list).
+    const { data: postOffices = [], isFetching: poLoading } = useQuery({
+        queryKey: ['admin', 'locations', districtValue],
+        queryFn: () => locationsApi.list({ district: districtValue, active_only: true }),
+        enabled: modalOpen && !!districtValue,
+    });
+
+    const invalidate = () => {
+        queryClient.invalidateQueries({ queryKey: BRANCHES_KEY });
+    };
 
     const createMutation = useMutation({
         mutationFn: (payload: BranchPayload) => branchesApi.create(payload),
@@ -97,8 +133,9 @@ const BranchList: React.FC = () => {
             name: branch.name,
             code: branch.code,
             address: branch.address ?? '',
-            district: branch.district ?? '',
             province: branch.province,
+            district: branch.district ?? undefined,
+            coverage_post_offices: branch.coverage_post_offices ?? [],
             phone: branch.phone ?? '',
             is_active: branch.is_active,
         });
@@ -111,14 +148,25 @@ const BranchList: React.FC = () => {
         form.resetFields();
     };
 
+    // When province changes the district (and thus coverage) no longer applies.
+    const onProvinceChange = () => {
+        form.setFieldsValue({ district: undefined, coverage_post_offices: [] });
+    };
+
+    // When district changes, the previous coverage selection is out of scope.
+    const onDistrictChange = () => {
+        form.setFieldsValue({ coverage_post_offices: [] });
+    };
+
     const handleSubmit = async () => {
         const values = await form.validateFields();
         const payload: BranchPayload = {
             name: values.name.trim(),
             code: values.code.trim(),
             address: values.address?.trim() || null,
-            district: values.district?.trim() || null,
             province: values.province.trim(),
+            district: values.district?.trim() || null,
+            coverage_post_offices: values.coverage_post_offices ?? [],
             phone: values.phone?.trim() || null,
             is_active: values.is_active ?? true,
         };
@@ -135,6 +183,21 @@ const BranchList: React.FC = () => {
             b.code.toLowerCase().includes(search.toLowerCase()) ||
             (b.district ?? '').toLowerCase().includes(search.toLowerCase())
     );
+
+    // Defensive: if a saved branch uses a province/district outside the canonical
+    // list, still surface it as an option so the Select shows the current value.
+    const provinceOptions = uniq([...SL_PROVINCES, editing?.province]).map((p) => ({
+        label: p,
+        value: p,
+    }));
+    const districtOptions = uniq([
+        ...districtsForProvince(provinceValue),
+        editing?.district,
+    ]).map((d) => ({ label: d, value: d }));
+    const postOfficeOptions = postOffices.map((po) => ({
+        label: po.post_office,
+        value: po.post_office,
+    }));
 
     const columns: ColumnsType<Branch> = [
         {
@@ -166,6 +229,27 @@ const BranchList: React.FC = () => {
                     )}
                 </Space>
             ),
+        },
+        {
+            title: 'Coverage',
+            key: 'coverage',
+            render: (_, record) => {
+                const pos = record.coverage_post_offices ?? [];
+                if (pos.length === 0) return <Text type="secondary">—</Text>;
+                const shown = pos.slice(0, 2);
+                return (
+                    <Space size={4} wrap>
+                        {shown.map((po) => (
+                            <Tag key={po} color="blue" style={{ marginInlineEnd: 0 }}>
+                                {po}
+                            </Tag>
+                        ))}
+                        {pos.length > shown.length && (
+                            <Tag>+{pos.length - shown.length}</Tag>
+                        )}
+                    </Space>
+                );
+            },
         },
         {
             title: 'Phone',
@@ -261,6 +345,7 @@ const BranchList: React.FC = () => {
                 okText={editing ? 'Save' : 'Create'}
                 confirmLoading={createMutation.isPending || updateMutation.isPending}
                 destroyOnHidden
+                width={560}
             >
                 <Form form={form} layout="vertical" initialValues={{ is_active: true }}>
                     <Form.Item
@@ -283,19 +368,59 @@ const BranchList: React.FC = () => {
                     </Form.Item>
 
                     <Form.Item
-                        label="City / District"
-                        name="district"
-                        extra="Maps to the branch's district."
-                    >
-                        <Input placeholder="e.g. Colombo" />
-                    </Form.Item>
-
-                    <Form.Item
                         label="Province"
                         name="province"
                         rules={[{ required: true, message: 'Province is required' }]}
                     >
-                        <Input placeholder="e.g. Western" />
+                        <Select
+                            placeholder="Select province"
+                            options={provinceOptions}
+                            onChange={onProvinceChange}
+                            showSearch
+                            optionFilterProp="label"
+                        />
+                    </Form.Item>
+
+                    <Form.Item
+                        label="City / District"
+                        name="district"
+                        extra="Maps to the branch's district."
+                    >
+                        <Select
+                            placeholder={provinceValue ? 'Select district' : 'Select a province first'}
+                            options={districtOptions}
+                            onChange={onDistrictChange}
+                            disabled={!provinceValue}
+                            allowClear
+                            showSearch
+                            optionFilterProp="label"
+                        />
+                    </Form.Item>
+
+                    <Form.Item
+                        label="Coverage Areas (Post Offices)"
+                        name="coverage_post_offices"
+                        extra={
+                            districtValue
+                                ? 'Post offices this branch delivers to. Manage the master list in Settings → Delivery Zones.'
+                                : 'Select a district to choose its post offices.'
+                        }
+                    >
+                        <Select
+                            mode="multiple"
+                            placeholder={districtValue ? 'Select post offices' : 'Select a district first'}
+                            options={postOfficeOptions}
+                            disabled={!districtValue}
+                            loading={poLoading}
+                            allowClear
+                            showSearch
+                            optionFilterProp="label"
+                            notFoundContent={
+                                poLoading
+                                    ? 'Loading…'
+                                    : 'No post offices for this district yet — add them in Settings → Delivery Zones.'
+                            }
+                        />
                     </Form.Item>
 
                     <Form.Item label="Address" name="address">

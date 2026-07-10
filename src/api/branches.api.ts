@@ -18,6 +18,8 @@ export interface Branch {
     phone?: string | null;
     manager_id?: string | null;
     is_active: boolean;
+    /** Post Offices this branch serves (synced to PostOfficeBranchMapping). */
+    coverage_post_offices: string[];
     created_at?: string | null;
     updated_at?: string | null;
 }
@@ -30,6 +32,8 @@ export interface BranchPayload {
     province: string;
     phone?: string | null;
     is_active?: boolean;
+    /** Full replacement set of Post Offices this branch serves. */
+    coverage_post_offices?: string[];
 }
 
 interface BranchListWire {
