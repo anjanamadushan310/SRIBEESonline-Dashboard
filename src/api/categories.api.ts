@@ -30,6 +30,7 @@ export interface CategoryPayload {
     name: string;
     slug: string;
     description?: string | null;
+    /** Top-level categories only — the API rejects an image on a sub-category. */
     image_url?: string | null;
     parent_category_id?: string | null;
     is_active: boolean;
@@ -50,6 +51,23 @@ export const categoriesApi = {
     list: async (): Promise<Category[]> => {
         const res = await apiClient.get<CategoryListWire>('/admin/categories');
         return res.data.data.categories;
+    },
+
+    /**
+     * Upload a category tile image and get back its hosted URL.
+     *
+     * The URL is then sent as `image_url` on create/update, so an image can be
+     * chosen before the category itself exists.
+     */
+    uploadImage: async (file: File): Promise<string> => {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await apiClient.post<{ success: boolean; data: { image_url: string } }>(
+            '/admin/categories/upload-image',
+            formData,
+            { headers: { 'Content-Type': 'multipart/form-data' } }
+        );
+        return res.data.data.image_url;
     },
 
     create: async (payload: CategoryPayload): Promise<Category> => {
