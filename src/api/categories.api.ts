@@ -8,6 +8,11 @@
  */
 import apiClient from './client';
 
+/**
+ * A category row. The hierarchy is flat-with-a-pointer: `parent_category_id`
+ * null means top-level, set means it's a sub-category of that category. The
+ * backend caps this at two levels.
+ */
 export interface Category {
     category_id: string;
     name: string;
@@ -17,6 +22,8 @@ export interface Category {
     parent_category_id?: string | null;
     is_active: boolean;
     product_count?: number;
+    /** Client-side only: populated when nesting rows for a tree table. */
+    children?: Category[];
 }
 
 export interface CategoryPayload {

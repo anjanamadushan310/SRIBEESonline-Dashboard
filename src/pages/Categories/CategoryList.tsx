@@ -13,6 +13,7 @@ import {
     Input,
     Modal,
     Form,
+    Select,
     Switch,
     Popconfirm,
     App,
@@ -24,7 +25,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { categoriesApi } from '../../api/categories.api';
 import type { Category, CategoryPayload } from '../../api/categories.api';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 // "Organic Fruits" -> "organic-fruits"
 const slugify = (text: string): string =>
@@ -90,11 +91,19 @@ const CategoryList: React.FC = () => {
             message.error(err.response?.data?.detail || 'Failed to delete category.'),
     });
 
-    const openCreate = () => {
+    // Categories are exactly two levels deep (the backend rejects deeper
+    // nesting), so a parent is always a root and a sub-category never has one.
+    const rootCategories = categories.filter((c) => !c.parent_category_id);
+
+    /** Open the modal to create a category, or a sub-category under `parent`. */
+    const openCreate = (parent?: Category) => {
         setEditing(null);
         setSlugTouched(false);
         form.resetFields();
-        form.setFieldsValue({ is_active: true });
+        form.setFieldsValue({
+            is_active: true,
+            parent_category_id: parent?.category_id ?? null,
+        });
         setModalOpen(true);
     };
 
@@ -105,6 +114,7 @@ const CategoryList: React.FC = () => {
             name: record.name,
             slug: record.slug,
             description: record.description ?? '',
+            parent_category_id: record.parent_category_id ?? null,
             is_active: record.is_active,
         });
         setModalOpen(true);
@@ -122,6 +132,7 @@ const CategoryList: React.FC = () => {
             name: values.name.trim(),
             slug: (values.slug || slugify(values.name)).trim(),
             description: values.description?.trim() || null,
+            parent_category_id: values.parent_category_id || null,
             is_active: values.is_active ?? true,
         };
         if (editing) {
@@ -131,11 +142,32 @@ const CategoryList: React.FC = () => {
         }
     };
 
-    const filtered = categories.filter(
-        (c) =>
-            c.name.toLowerCase().includes(search.toLowerCase()) ||
-            c.slug.toLowerCase().includes(search.toLowerCase())
-    );
+    const matches = (c: Category) =>
+        c.name.toLowerCase().includes(search.toLowerCase()) ||
+        c.slug.toLowerCase().includes(search.toLowerCase());
+
+    // Nest sub-categories under their parent. antd renders a `children` array as
+    // expandable rows, but an empty one still draws an expand caret — so the key
+    // is only attached when the category actually has sub-categories.
+    // A parent is kept when it matches OR any of its children do, so searching
+    // for a sub-category doesn't hide the branch it lives on.
+    const treeData: Category[] = rootCategories
+        .map((root) => {
+            const children = categories.filter(
+                (c) => c.parent_category_id === root.category_id && matches(c)
+            );
+            const keep = matches(root) || children.length > 0;
+            if (!keep) return null;
+
+            const visibleChildren = matches(root)
+                ? categories.filter((c) => c.parent_category_id === root.category_id)
+                : children;
+
+            return visibleChildren.length > 0
+                ? { ...root, children: visibleChildren }
+                : { ...root };
+        })
+        .filter((c): c is Category => c !== null);
 
     const columns: ColumnsType<Category> = [
         {
@@ -143,6 +175,12 @@ const CategoryList: React.FC = () => {
             dataIndex: 'name',
             key: 'name',
             sorter: (a, b) => a.name.localeCompare(b.name),
+            render: (name: string, record) => (
+                <Space>
+                    <Text strong={!record.parent_category_id}>{name}</Text>
+                    {record.parent_category_id && <Tag color="purple">Sub</Tag>}
+                </Space>
+            ),
         },
         {
             title: 'Slug',
@@ -183,9 +221,20 @@ const CategoryList: React.FC = () => {
         {
             title: 'Actions',
             key: 'actions',
-            width: 160,
+            width: 260,
             render: (_, record) => (
                 <Space>
+                    {/* Only a root category can take sub-categories — the tree is
+                        capped at two levels. */}
+                    {!record.parent_category_id && (
+                        <Button
+                            type="link"
+                            icon={<PlusOutlined />}
+                            onClick={() => openCreate(record)}
+                        >
+                            Sub-category
+                        </Button>
+                    )}
                     <Button
                         type="link"
                         icon={<EditOutlined />}
@@ -195,7 +244,7 @@ const CategoryList: React.FC = () => {
                     </Button>
                     <Popconfirm
                         title="Delete category"
-                        description="Categories with products cannot be deleted."
+                        description="Categories with products or sub-categories cannot be deleted."
                         okText="Delete"
                         okButtonProps={{ danger: true }}
                         onConfirm={() => deleteMutation.mutate(record.category_id)}
@@ -222,7 +271,7 @@ const CategoryList: React.FC = () => {
                 <Title level={3} style={{ margin: 0 }}>
                     Categories
                 </Title>
-                <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate()}>
                     Add Category
                 </Button>
             </div>
@@ -240,11 +289,12 @@ const CategoryList: React.FC = () => {
                 <Table
                     rowKey="category_id"
                     columns={columns}
-                    dataSource={filtered}
+                    dataSource={treeData}
                     loading={isLoading}
                     locale={{
                         emptyText: isError ? 'Failed to load categories.' : 'No categories yet.',
                     }}
+                    expandable={{ defaultExpandAllRows: true }}
                     pagination={{
                         pageSize: 10,
                         showSizeChanger: true,
@@ -263,6 +313,23 @@ const CategoryList: React.FC = () => {
                 destroyOnHidden
             >
                 <Form form={form} layout="vertical" initialValues={{ is_active: true }}>
+                    <Form.Item
+                        label="Parent Category"
+                        name="parent_category_id"
+                        extra="Leave empty for a top-level category. Choosing a parent makes this a sub-category."
+                    >
+                        <Select
+                            placeholder="None — this is a top-level category"
+                            allowClear
+                            showSearch
+                            optionFilterProp="label"
+                            options={rootCategories
+                                // A category can't parent itself.
+                                .filter((c) => c.category_id !== editing?.category_id)
+                                .map((c) => ({ label: c.name, value: c.category_id }))}
+                        />
+                    </Form.Item>
+
                     <Form.Item
                         label="Name"
                         name="name"
